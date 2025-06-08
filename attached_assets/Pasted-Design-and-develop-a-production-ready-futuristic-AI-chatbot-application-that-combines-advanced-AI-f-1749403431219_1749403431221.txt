@@ -1,0 +1,100 @@
+Design and develop a production-ready, futuristic AI chatbot application that combines advanced AI features with a visually immersive, cyberpunk-inspired UI/UX — blending high-performance backend logic with a modern, interactive frontend reminiscent of Nike-level design systems. The application should deliver a sleek, responsive, and animated experience that feels alive and intelligent.
+
+🔧 Backend (Flask + Ollama + TinyLLaMA):
+Build a fast, scalable Flask-based backend.
+
+Connect with a locally running Ollama model (e.g., TinyLLaMA) via:
+
+Non-streaming JSON API at http://localhost:11434/api/generate
+
+Ensure prompt-response flow is handled with low latency and error-tolerance.
+
+Implement:
+
+Error handling (API unreachable, timeout, model errors)
+
+Persistent chat history storage (file-based or SQLite)
+
+CORS handling for secure frontend/backend comms
+
+Logging and debugging hooks
+
+💻 Frontend (Sci-fi UI + Modern UX):
+Create a single-page web app (SPA) using HTML/CSS/JS (or React preferred), featuring a neon-lit, cyberpunk, Nike-grade interface with a focus on usability and responsiveness.
+
+🛠 Functional Features:
+Chat interface with:
+
+Markdown rendering (bold, italics, code blocks, etc.)
+
+Persistent chat history (browser storage or API-based)
+
+Typing indicators with animation (...thinking)
+
+Auto-scroll to latest message
+
+Input box with:
+
+Enter-to-send
+
+Send button (hover effects + disabled when loading)
+
+Clear chat functionality
+
+Dark/light mode toggle (stylish transition)
+
+Error messages with friendly UX text
+
+Loading indicator when waiting for AI response
+
+🎨 Visual & UX Design:
+Neon glow, holographic panels, or light grid backgrounds
+
+Responsive grid/flex layout for all screen sizes
+
+Subtle animations (chat bubble slide-in, button glow, loader pulse)
+
+Scrollable chat history with smooth transitions
+
+Font: Futuristic (Orbitron, Rajdhani, Exo)
+
+Color palette: Black, charcoal, electric blue, neon green, pink accents
+
+✅ Design Reference:
+Inspired by Nike’s futuristic interfaces
+
+Touches of Tron Legacy, Blade Runner, Cyberpunk 2077
+
+Use glassmorphism + neumorphism elements tastefully
+
+💾 Tech Stack Suggestions:
+Frontend: React + Tailwind CSS (or plain HTML/JS if lighter)
+
+Backend: Flask (Python)
+
+Model: Ollama local API with TinyLLaMA
+
+🧠 Advanced Ideas (Optional Extras):
+Voice input/output (Web Speech API)
+
+Multi-chat threads or tabs
+
+Token usage stats per response
+
+Upload file + AI read/answer mode
+
+Code block syntax highlighting (Prism.js)
+
+Model switcher dropdown (if multiple local models run)
+
+📦 Final Output:
+Folder structure:
+
+bash
+Copy
+Edit
+/chatbot-app
+├── backend/ (Flask app)
+├── frontend/ (React or HTML/JS/CSS)
+└── README.md (instructions, dependencies)
+Easily deployable (Flask dev server or gunicorn), scalable, with comments and reusable components.
