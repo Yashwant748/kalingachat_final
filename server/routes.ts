@@ -85,17 +85,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (ollamaError) {
         console.error("Ollama API error:", ollamaError);
         
-        // Create fallback AI message
+        // Create informative fallback AI message
         const fallbackMessage = await storage.createMessage({
           conversationId,
-          content: "I'm sorry, I'm having trouble connecting to the AI service right now. Please try again in a moment.",
+          content: `I'm unable to connect to the TinyLLaMA model right now. To use this chatbot with TinyLLaMA, please ensure:\n\n1. Ollama is installed and running on your system\n2. TinyLLaMA model is downloaded: \`ollama pull tinyllama\`\n3. Ollama service is running: \`ollama serve\`\n\nOnce connected, I'll be able to provide intelligent AI responses powered by TinyLLaMA!`,
           sender: 'ai'
         });
 
         res.json({ 
           userMessage, 
           aiMessage: fallbackMessage,
-          error: "AI service temporarily unavailable"
+          error: "TinyLLaMA service not available - see instructions above"
         });
       }
     } catch (error) {
@@ -113,8 +113,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.json({ status: "disconnected", ollama: false });
       }
-    } catch (error) {
-      res.json({ status: "disconnected", ollama: false, error: error.message });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.json({ status: "disconnected", ollama: false, error: errorMessage });
     }
   });
 
