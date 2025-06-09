@@ -26,11 +26,11 @@
   --ring: hsl(20, 14.3%, 4.1%);
   --radius: 0.5rem;
   
-  /* Cyberpunk Colors */
-  --cyber-blue: hsl(180, 100%, 50%);
-  --neon-green: hsl(100, 100%, 55%);
-  --hot-pink: hsl(328, 100%, 54%);
-  --cyber-purple: hsl(271, 76%, 53%);
+  /* KalingaAI Colors */
+  --cyber-blue: hsl(207, 90%, 54%);
+  --neon-green: hsl(142, 76%, 36%);
+  --hot-pink: hsl(330, 81%, 60%);
+  --cyber-purple: hsl(262, 83%, 58%);
   --dark-charcoal: hsl(0, 0%, 10%);
   --cyber-gray: hsl(0, 0%, 16%);
 }

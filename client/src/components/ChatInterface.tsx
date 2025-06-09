@@ -2,30 +2,26 @@ import { useState, useRef, useEffect } from "react";
 import { useChat } from "@/hooks/useChat";
 import MessageBubble from "./MessageBubble";
 import ThemeToggle from "./ThemeToggle";
+import Sidebar from "./Sidebar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 
 export default function ChatInterface() {
   const [inputMessage, setInputMessage] = useState("");
-  const [characterCount, setCharacterCount] = useState(0);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const {
-    conversations,
     messages,
     currentConversationId,
     health,
     isTyping,
     messagesEndRef,
     isSending,
-    sendMessage,
-    startNewConversation,
-    deleteCurrentConversation
+    sendMessage
   } = useChat();
 
-  const maxChars = 2000;
   const isConnected = health?.ollama || false;
 
   useEffect(() => {
@@ -35,18 +31,12 @@ export default function ChatInterface() {
     }
   }, [inputMessage]);
 
-  const handleInputChange = (value: string) => {
-    setInputMessage(value);
-    setCharacterCount(value.length);
-  };
-
   const handleSendMessage = () => {
     const trimmedMessage = inputMessage.trim();
     if (!trimmedMessage || isSending || isTyping) return;
     
     sendMessage(trimmedMessage);
     setInputMessage("");
-    setCharacterCount(0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -56,224 +46,198 @@ export default function ChatInterface() {
     }
   };
 
-  const handleClearChat = () => {
-    if (window.confirm('Are you sure you want to clear the chat history?')) {
-      deleteCurrentConversation();
-    }
-  };
-
   return (
-    <div className="min-h-screen transition-all duration-500 bg-background relative">
-      {/* Animated Grid Background */}
-      <div className="fixed inset-0 grid-bg opacity-20 pointer-events-none" />
+    <div className="flex h-screen bg-background">
+      {/* Sidebar */}
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        onToggle={() => setIsSidebarOpen(!isSidebarOpen)} 
+      />
       
-      <div className="relative min-h-screen flex flex-col">
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="glassmorphic border-b border-cyber-blue/20 p-4 relative z-10">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 rounded-lg gradient-cyber neon-glow flex items-center justify-center animate-glow-pulse">
-                <i className="fas fa-robot text-white text-lg" />
-              </div>
-              <div>
-                <h1 className="font-orbitron font-bold text-xl text-cyber-blue tracking-wider">
-                  CyberChat AI
-                </h1>
-                <p className="text-xs text-muted-foreground font-inter">
-                  Powered by TinyLLaMA
-                </p>
+        <header className="border-b border-border bg-card px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="lg:hidden w-8 h-8 p-0"
+              >
+                <i className="fas fa-bars" />
+              </Button>
+              
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg gradient-cyber flex items-center justify-center">
+                  <i className="fas fa-brain text-white text-sm" />
+                </div>
+                <div>
+                  <h1 className="font-orbitron font-bold text-lg text-foreground">
+                    KalingaAI Chat
+                  </h1>
+                  <p className="text-xs text-muted-foreground">
+                    {isConnected ? 'Connected to TinyLLaMA' : 'Waiting for AI connection...'}
+                  </p>
+                </div>
               </div>
             </div>
             
-            {/* Controls */}
-            <div className="flex items-center space-x-4">
-              {/* Theme Toggle */}
+            <div className="flex items-center space-x-2">
               <ThemeToggle />
-              
-              {/* New Chat */}
-              <Button
-                onClick={startNewConversation}
-                variant="ghost"
-                size="sm"
-                className="px-4 py-2 rounded-lg border border-neon-green/30 text-neon-green hover:bg-neon-green/10 transition-all duration-300 font-inter font-medium text-sm hover:shadow-lg hover:shadow-neon-green/30"
-              >
-                <i className="fas fa-plus mr-2" />
-                New Chat
-              </Button>
-              
-              {/* Clear Chat */}
-              <Button
-                onClick={handleClearChat}
-                variant="ghost"
-                size="sm"
-                className="px-4 py-2 rounded-lg border border-hot-pink/30 text-hot-pink hover:bg-hot-pink/10 transition-all duration-300 font-inter font-medium text-sm hover:shadow-lg hover:shadow-hot-pink/30"
-                disabled={!currentConversationId}
-              >
-                <i className="fas fa-trash-alt mr-2" />
-                Clear Chat
-              </Button>
-              
-              {/* Settings */}
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-10 h-10 rounded-lg border border-cyber-purple/30 text-cyber-purple hover:bg-cyber-purple/10 transition-all duration-300 flex items-center justify-center hover:shadow-lg hover:shadow-cyber-purple/30"
+                className="w-8 h-8 p-0"
               >
-                <i className="fas fa-cog" />
+                <i className="fas fa-ellipsis-v" />
               </Button>
             </div>
           </div>
         </header>
 
-        {/* Chat Container */}
-        <div className="flex-1 flex flex-col max-w-6xl mx-auto w-full p-4 space-y-4">
-          
-          {/* Messages Area */}
-          <div className="flex-1 holographic rounded-2xl p-6 relative overflow-hidden">
-            {/* Background Effects */}
-            <div className="absolute inset-0 bg-gradient-to-br from-cyber-blue/5 via-transparent to-hot-pink/5 pointer-events-none" />
-            
-            {/* Messages Container */}
-            <div className="relative z-10 h-full flex flex-col">
-              {messages.length === 0 ? (
-                /* Welcome Message */
-                <div className="text-center py-8 space-y-4 flex-1 flex flex-col justify-center">
-                  <div className="w-20 h-20 mx-auto rounded-full gradient-cyber neon-glow flex items-center justify-center animate-glow-pulse">
-                    <i className="fas fa-brain text-white text-2xl" />
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-hidden">
+          {messages.length === 0 ? (
+            /* Welcome Screen */
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="text-center max-w-2xl">
+                <div className="w-16 h-16 mx-auto rounded-2xl gradient-cyber flex items-center justify-center mb-6">
+                  <i className="fas fa-brain text-white text-2xl" />
+                </div>
+                <h2 className="font-orbitron font-bold text-3xl text-foreground mb-4">
+                  Welcome to KalingaAI
+                </h2>
+                <p className="text-muted-foreground text-lg mb-8">
+                  Your advanced AI assistant powered by TinyLLaMA. Ask questions, get help with tasks, or have a conversation.
+                </p>
+                
+                {/* Example prompts */}
+                <div className="grid md:grid-cols-2 gap-4 mb-8">
+                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <i className="fas fa-lightbulb text-primary" />
+                      <span className="font-medium">Creative Ideas</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground text-left">
+                      Help me brainstorm ideas for a project
+                    </p>
                   </div>
-                  <h2 className="font-orbitron font-bold text-2xl text-cyber-blue">
-                    Welcome to CyberChat AI
-                  </h2>
-                  <p className="text-muted-foreground max-w-md mx-auto font-inter">
-                    Start a conversation with our advanced AI. Ask anything, explore ideas, or just chat!
-                  </p>
                   
-                  {/* Connection Status */}
-                  <div className="flex items-center justify-center space-x-2 mt-4">
-                    <div className={`w-2 h-2 rounded-full animate-pulse ${
-                      isConnected ? 'bg-neon-green' : 'bg-red-500'
-                    }`} />
-                    <span className="text-sm text-muted-foreground">
-                      {isConnected ? 'Connected to TinyLLaMA' : 'Connecting to AI service...'}
-                    </span>
+                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <i className="fas fa-code text-primary" />
+                      <span className="font-medium">Code Help</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground text-left">
+                      Explain a programming concept
+                    </p>
+                  </div>
+                  
+                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <i className="fas fa-book text-primary" />
+                      <span className="font-medium">Learning</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground text-left">
+                      Teach me about a new topic
+                    </p>
+                  </div>
+                  
+                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <i className="fas fa-chart-line text-primary" />
+                      <span className="font-medium">Analysis</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground text-left">
+                      Analyze data and provide insights
+                    </p>
                   </div>
                 </div>
-              ) : (
-                /* Messages List */
-                <ScrollArea className="flex-1 scrollbar-cyber">
-                  <div className="space-y-4 pr-4">
-                    {messages.map((message, index) => (
-                      <MessageBubble
-                        key={message.id}
-                        message={message}
-                        isLast={index === messages.length - 1}
-                      />
-                    ))}
-                    
-                    {/* Typing Indicator */}
-                    {isTyping && (
-                      <div className="animate-slide-in flex items-start space-x-3">
-                        <div className="w-8 h-8 rounded-full gradient-neon flex items-center justify-center flex-shrink-0">
-                          <i className="fas fa-robot text-white text-sm" />
-                        </div>
-                        <div className="glassmorphic rounded-2xl rounded-tl-sm p-4 border border-cyber-blue/20">
-                          <div className="flex space-x-1">
-                            <div className="w-2 h-2 bg-cyber-blue rounded-full animate-typing" />
-                            <div className="w-2 h-2 bg-neon-green rounded-full animate-typing" style={{ animationDelay: '0.2s' }} />
-                            <div className="w-2 h-2 bg-hot-pink rounded-full animate-typing" style={{ animationDelay: '0.4s' }} />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div ref={messagesEndRef} />
-                  </div>
-                </ScrollArea>
-              )}
-            </div>
-          </div>
-          
-          {/* Input Area */}
-          <div className="holographic rounded-2xl p-4 space-y-4">
-            {/* Input Container */}
-            <div className="flex items-end space-x-4">
-              {/* Text Input */}
-              <div className="flex-1 relative">
-                <Textarea
-                  ref={textareaRef}
-                  value={inputMessage}
-                  onChange={(e) => handleInputChange(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type your message here..."
-                  className="w-full bg-cyber-gray/50 border border-cyber-blue/30 rounded-xl px-4 py-3 text-foreground placeholder-muted-foreground font-inter resize-none focus:outline-none focus:border-cyber-blue focus:ring-2 focus:ring-cyber-blue/20 transition-all duration-300 scrollbar-cyber min-h-[52px] max-h-[120px]"
-                  disabled={isSending || isTyping}
-                  maxLength={maxChars}
-                />
                 
-                {/* File Upload Button */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-3 bottom-3 w-8 h-8 rounded-lg bg-cyber-purple/20 border border-cyber-purple/30 text-cyber-purple hover:bg-cyber-purple/30 transition-all duration-300 flex items-center justify-center p-0"
-                >
-                  <i className="fas fa-paperclip text-sm" />
-                </Button>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
+                  <span className="text-sm text-muted-foreground">
+                    {isConnected ? 'AI service is online' : 'Connecting to AI service...'}
+                  </span>
+                </div>
               </div>
+            </div>
+          ) : (
+            /* Messages List */
+            <ScrollArea className="h-full">
+              <div className="max-w-4xl mx-auto p-4 space-y-6">
+                {messages.map((message, index) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    isLast={index === messages.length - 1}
+                  />
+                ))}
+                
+                {/* Typing Indicator */}
+                {isTyping && (
+                  <div className="flex items-start space-x-4 animate-slide-in">
+                    <div className="w-8 h-8 rounded-full gradient-neon flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-brain text-white text-sm" />
+                    </div>
+                    <div className="bg-card border border-border rounded-2xl rounded-tl-sm p-4">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" />
+                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+          )}
+        </div>
+        
+        {/* Input Area */}
+        <div className="border-t border-border bg-card p-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="relative">
+              <Textarea
+                ref={textareaRef}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Message KalingaAI..."
+                className="w-full bg-background border border-border rounded-xl px-4 py-3 pr-12 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all duration-200 min-h-[52px] max-h-[200px]"
+                disabled={isSending || isTyping}
+                rows={1}
+              />
               
-              {/* Send Button */}
               <Button
                 onClick={handleSendMessage}
-                disabled={!inputMessage.trim() || isSending || isTyping || characterCount > maxChars}
-                className="px-6 py-3 gradient-neon rounded-xl font-inter font-semibold text-black hover:shadow-xl hover:shadow-cyber-blue/30 transition-all duration-300 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed neon-glow min-h-[52px]"
+                disabled={!inputMessage.trim() || isSending || isTyping}
+                size="sm"
+                className="absolute right-2 bottom-2 w-8 h-8 p-0 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span>
-                  {isSending || isTyping ? 'Sending...' : 'Send'}
-                </span>
                 {isSending || isTyping ? (
-                  <i className="fas fa-spinner fa-spin" />
+                  <i className="fas fa-spinner fa-spin text-sm" />
                 ) : (
-                  <i className="fas fa-paper-plane" />
+                  <i className="fas fa-paper-plane text-sm text-primary-foreground" />
                 )}
               </Button>
             </div>
             
-            {/* Input Status */}
-            <div className="flex items-center justify-between text-xs text-muted-foreground font-inter">
+            <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
               <div className="flex items-center space-x-4">
                 <span className="flex items-center space-x-1">
-                  <div className={`w-2 h-2 rounded-full animate-pulse ${
-                    isConnected ? 'bg-neon-green' : 'bg-red-500'
-                  }`} />
-                  <span>
-                    {isConnected ? 'Connected to TinyLLaMA' : 'Disconnected'}
-                  </span>
-                </span>
-                <span className={characterCount > maxChars ? 'text-red-500' : ''}>
-                  {characterCount} / {maxChars}
+                  <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
                 </span>
               </div>
-              <div className="text-muted-foreground">
-                Press{' '}
-                <kbd className="px-2 py-1 bg-cyber-gray rounded text-xs border border-border">
-                  Enter
-                </kbd>{' '}
-                to send
-              </div>
+              <span>Press Enter to send</span>
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <footer className="glassmorphic border-t border-cyber-blue/20 p-4 text-center">
-          <div className="max-w-6xl mx-auto">
-            <p className="text-muted-foreground text-sm font-inter">
-              Powered by{' '}
-              <span className="text-cyber-blue font-semibold">Ollama</span> ×{' '}
-              <span className="text-neon-green font-semibold">TinyLLaMA</span> | Built with{' '}
-              <i className="fas fa-heart text-hot-pink mx-1" /> for the future
-            </p>
-          </div>
-        </footer>
       </div>
     </div>
   );

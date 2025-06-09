@@ -1,4 +1,4 @@
-import { conversations, messages, type Conversation, type Message, type InsertConversation, type InsertMessage } from "@shared/schema";
+import type { Conversation, Message, InsertConversation, InsertMessage } from "@shared/schema";
 
 export interface IStorage {
   // Conversations

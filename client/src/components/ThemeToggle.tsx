@@ -31,15 +31,13 @@ export default function ThemeToggle() {
       onClick={toggleTheme}
       variant="ghost"
       size="sm"
-      className="w-12 h-6 rounded-full bg-cyber-gray border border-cyber-blue/30 relative transition-all duration-300 hover:shadow-lg hover:shadow-cyber-blue/30 p-0"
+      className="w-8 h-8 p-0 rounded-lg hover:bg-muted transition-colors"
     >
-      <div 
-        className={`w-5 h-5 rounded-full absolute top-0.5 transition-transform duration-300 shadow-lg ${
-          isDarkMode 
-            ? 'left-0.5 gradient-neon' 
-            : 'left-6 gradient-hot'
-        }`}
-      />
+      {isDarkMode ? (
+        <i className="fas fa-sun text-yellow-500" />
+      ) : (
+        <i className="fas fa-moon text-blue-500" />
+      )}
     </Button>
   );
 }
