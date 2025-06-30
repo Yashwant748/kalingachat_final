@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useChat } from "@/hooks/useChat";
+import { useAuth } from "@/hooks/useAuth";
 import { formatDistanceToNow } from "date-fns";
 
 interface SidebarProps {
@@ -132,7 +133,19 @@ export default function Sidebar({ isOpen, onToggle }: SidebarProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-border">
+        <div className="p-4 border-t border-border space-y-3">
+          <Button
+            onClick={() => {
+              const { logout } = useAuth();
+              logout();
+            }}
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+          >
+            <i className="fas fa-sign-out-alt mr-3" />
+            Sign Out
+          </Button>
           <div className="text-xs text-muted-foreground text-center">
             Powered by TinyLLaMA
           </div>

@@ -31,12 +31,14 @@ export default function ChatInterface() {
     }
   }, [inputMessage]);
 
-  const handleSendMessage = () => {
-    const trimmedMessage = inputMessage.trim();
-    if (!trimmedMessage || isSending || isTyping) return;
+  const handleSendMessage = (message?: string) => {
+    const messageToSend = message || inputMessage.trim();
+    if (!messageToSend || isSending || isTyping) return;
     
-    sendMessage(trimmedMessage);
-    setInputMessage("");
+    sendMessage(messageToSend);
+    if (!message) {
+      setInputMessage("");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -115,7 +117,10 @@ export default function ChatInterface() {
                 
                 {/* Example prompts */}
                 <div className="grid md:grid-cols-2 gap-4 mb-8">
-                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <div 
+                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSendMessage("Help me brainstorm creative ideas for my final year project at Kalinga University")}
+                  >
                     <div className="flex items-center space-x-3 mb-2">
                       <i className="fas fa-lightbulb text-primary" />
                       <span className="font-medium">Creative Ideas</span>
@@ -125,7 +130,10 @@ export default function ChatInterface() {
                     </p>
                   </div>
                   
-                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <div 
+                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSendMessage("I need help with programming concepts and coding best practices")}
+                  >
                     <div className="flex items-center space-x-3 mb-2">
                       <i className="fas fa-code text-primary" />
                       <span className="font-medium">Code Help</span>
@@ -135,7 +143,10 @@ export default function ChatInterface() {
                     </p>
                   </div>
                   
-                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <div 
+                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSendMessage("Teach me about emerging technologies and study techniques for my courses")}
+                  >
                     <div className="flex items-center space-x-3 mb-2">
                       <i className="fas fa-book text-primary" />
                       <span className="font-medium">Learning</span>
@@ -145,7 +156,10 @@ export default function ChatInterface() {
                     </p>
                   </div>
                   
-                  <div className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors">
+                  <div 
+                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSendMessage("Help me analyze data and provide insights for my research project")}
+                  >
                     <div className="flex items-center space-x-3 mb-2">
                       <i className="fas fa-chart-line text-primary" />
                       <span className="font-medium">Analysis</span>
@@ -214,7 +228,7 @@ export default function ChatInterface() {
               />
               
               <Button
-                onClick={handleSendMessage}
+                onClick={() => handleSendMessage()}
                 disabled={!inputMessage.trim() || isSending || isTyping}
                 size="sm"
                 className="absolute right-2 bottom-2 w-8 h-8 p-0 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
