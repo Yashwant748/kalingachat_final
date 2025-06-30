@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "@/hooks/useChat";
+import { useAuth } from "@/hooks/useAuth";
 import MessageBubble from "./MessageBubble";
 import ThemeToggle from "./ThemeToggle";
 import Sidebar from "./Sidebar";
@@ -12,6 +13,7 @@ export default function ChatInterface() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
+  const { user } = useAuth();
   const {
     messages,
     currentConversationId,
@@ -86,14 +88,28 @@ export default function ChatInterface() {
               </div>
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-3">
+              {user && (
+                <div className="flex items-center space-x-2 text-muted-foreground">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+                    <span className="text-white text-sm font-bold">
+                      {user.name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
+                    </span>
+                  </div>
+                  <span className="text-sm font-medium hidden sm:block">
+                    {user.name || user.email}
+                  </span>
+                </div>
+              )}
               <ThemeToggle />
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-8 h-8 p-0"
+                onClick={() => window.location.href = '/api/auth/logout'}
+                className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground"
+                title="Logout"
               >
-                <i className="fas fa-ellipsis-v" />
+                <i className="fas fa-sign-out-alt" />
               </Button>
             </div>
           </div>

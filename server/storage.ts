@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 export interface IStorage {
   // Users
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserById(id: number): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   verifyPassword(password: string, hashedPassword: string): Promise<boolean>;
   
@@ -13,6 +14,7 @@ export interface IStorage {
   getConversations(userId: number): Promise<Conversation[]>;
   getConversation(id: number, userId: number): Promise<Conversation | undefined>;
   createConversation(conversation: InsertConversation & { userId: number }): Promise<Conversation>;
+  updateConversationTitle(id: number, title: string): Promise<void>;
   deleteConversation(id: number, userId: number): Promise<void>;
   
   // Messages
@@ -25,6 +27,11 @@ export class DatabaseStorage implements IStorage {
   // User operations
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async getUserById(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
@@ -67,6 +74,13 @@ export class DatabaseStorage implements IStorage {
       .values(conversationData)
       .returning();
     return conversation;
+  }
+
+  async updateConversationTitle(id: number, title: string): Promise<void> {
+    await db
+      .update(conversations)
+      .set({ title, updatedAt: new Date() })
+      .where(eq(conversations.id, id));
   }
 
   async deleteConversation(id: number, userId: number): Promise<void> {

@@ -99,8 +99,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/me", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).session.userId;
-      const user = await storage.getUserByEmail(""); // We'll need to update this
-      res.json({ user: { id: userId } });
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      res.json({ 
+        user: { 
+          id: user.id, 
+          email: user.email, 
+          name: user.name 
+        } 
+      });
     } catch (error) {
       res.status(401).json({ error: "Not authenticated" });
     }
@@ -173,6 +182,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sender: 'user'
       });
 
+      // Check if this is the first message and update conversation title
+      const messages = await storage.getMessages(conversationId);
+      if (messages.length === 1) { // First message
+        const title = generateChatTitle(content);
+        await storage.updateConversationTitle(conversationId, title);
+      }
+
       // Get AI response from Ollama
       try {
         const aiResponse = await getOllamaResponse(content);
@@ -227,112 +243,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-// Kalinga University-specific response system
+// Generate meaningful chat title from first message
+function generateChatTitle(message: string): string {
+  const cleanMessage = message.trim().toLowerCase();
+  
+  // Kalinga University specific patterns
+  if (cleanMessage.includes('kalinga') || cleanMessage.includes('university')) {
+    return 'Kalinga University Discussion';
+  }
+  
+  if (cleanMessage.includes('course') || cleanMessage.includes('program') || cleanMessage.includes('admission')) {
+    return 'Academic Programs Inquiry';
+  }
+  
+  if (cleanMessage.includes('campus') || cleanMessage.includes('hostel') || cleanMessage.includes('facilities')) {
+    return 'Campus & Facilities Information';
+  }
+  
+  if (cleanMessage.includes('code') || cleanMessage.includes('programming') || cleanMessage.includes('software')) {
+    return 'Programming Help & Support';
+  }
+  
+  if (cleanMessage.includes('creative') || cleanMessage.includes('idea') || cleanMessage.includes('brainstorm')) {
+    return 'Creative Ideas & Brainstorming';
+  }
+  
+  if (cleanMessage.includes('research') || cleanMessage.includes('analysis') || cleanMessage.includes('data')) {
+    return 'Research & Analysis Support';
+  }
+  
+  if (cleanMessage.includes('learn') || cleanMessage.includes('study') || cleanMessage.includes('teach')) {
+    return 'Learning & Study Guidance';
+  }
+  
+  if (cleanMessage.includes('project') || cleanMessage.includes('assignment')) {
+    return 'Project Assistance';
+  }
+  
+  if (cleanMessage.includes('career') || cleanMessage.includes('job') || cleanMessage.includes('placement')) {
+    return 'Career & Placement Guidance';
+  }
+  
+  // Extract key words for general titles
+  const words = cleanMessage.split(' ').filter(word => 
+    word.length > 3 && 
+    !['what', 'how', 'why', 'when', 'where', 'help', 'please', 'need', 'want', 'like'].includes(word)
+  );
+  
+  if (words.length > 0) {
+    const titleWords = words.slice(0, 3).map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    );
+    return titleWords.join(' ') + ' Discussion';
+  }
+  
+  // Fallback based on message length
+  if (message.length > 50) {
+    return 'Detailed Discussion';
+  } else if (message.includes('?')) {
+    return 'Quick Question';
+  }
+  
+  return 'New Conversation';
+}
+
+// ChatGPT-style response system with Kalinga context
 function getKalingaUniversityResponse(userMessage: string): string {
   const message = userMessage.toLowerCase();
   
-  // University information
-  if (message.includes('kalinga university') || message.includes('kalinga') || message.includes('university')) {
-    return `Hello! I'm KalingaAI, your dedicated AI assistant for Kalinga University, Raipur. 
+  // University information - Natural, conversational style
+  if (message.includes('kalinga') || message.includes('university')) {
+    return `Kalinga University is a well-regarded private university established in 2006, located in Raipur, Chhattisgarh. The university has built a strong reputation for its comprehensive academic programs and modern infrastructure.
 
-Kalinga University is a prestigious private university established in 2006, known for:
-- Excellence in Engineering, Management, and Technology education
-- State-of-the-art campus facilities in Raipur, Chhattisgarh
-- Industry-aligned curriculum and research programs
-- Strong placement records with top companies
+The university offers a wide range of undergraduate and postgraduate programs across various disciplines including Engineering, Management, Computer Science, and more. The campus features modern facilities, well-equipped laboratories, and a supportive learning environment designed to foster both academic and personal growth.
 
-How can I help you with your academic or university-related queries today?`;
+What specific aspect of Kalinga University would you like to know more about? I'm here to help with any questions you might have.`;
   }
 
-  // Academic queries
-  if (message.includes('course') || message.includes('program') || message.includes('admission')) {
-    return `Kalinga University offers diverse programs including:
+  // Programming/Technical Help - ChatGPT style
+  if (message.includes('code') || message.includes('programming') || message.includes('software') || message.includes('technical')) {
+    return `I'd be happy to help you with programming and technical questions! Programming can seem challenging at first, but with the right approach and practice, it becomes much more manageable.
 
-🎓 **Engineering**: CSE, ECE, Mechanical, Civil, Electrical
-🎓 **Management**: MBA, BBA with various specializations  
-🎓 **Technology**: B.Tech, M.Tech, PhD programs
-🎓 **Other Programs**: Arts, Science, Commerce, Law, Pharmacy
+Whether you're working on algorithms, debugging code, learning a new language, or working on a project, I can provide guidance and explanations tailored to your specific needs.
 
-For admissions and detailed course information, I recommend contacting the admissions office. Would you like specific information about any particular program?`;
+Could you share more details about what you're working on? For example:
+- What programming language are you using?
+- What specific problem are you trying to solve?
+- Are you getting any error messages?
+- What have you tried so far?
+
+The more context you provide, the better I can help you learn and solve the problem effectively.`;
   }
 
-  // Campus and facilities
-  if (message.includes('campus') || message.includes('facilities') || message.includes('hostel')) {
-    return `Kalinga University campus features:
+  // Creative/Ideas - Encouraging and supportive
+  if (message.includes('creative') || message.includes('idea') || message.includes('brainstorm')) {
+    return `I love helping with creative thinking and brainstorming! Creativity often flourishes when we approach problems from different angles and explore various possibilities.
 
-🏢 **Modern Infrastructure**: Well-equipped classrooms, laboratories, and libraries
-🏠 **Accommodation**: Separate hostels for boys and girls with modern amenities
-🍽️ **Dining**: Multiple cafeterias and mess facilities
-⚽ **Sports**: Sports complex with various indoor and outdoor facilities
-🌐 **Technology**: Wi-Fi enabled campus with digital learning resources
+Some effective brainstorming approaches include:
+- Starting with "what if" questions
+- Building on existing ideas rather than trying to create something entirely new
+- Combining concepts from different fields
+- Looking at problems from different perspectives
+- Not judging ideas initially - just generating them
 
-The campus is designed to provide a holistic educational experience. Is there any specific facility you'd like to know more about?`;
+What kind of creative project or challenge are you working on? Are you looking for ideas in a specific area like writing, problem-solving, design concepts, or technical solutions?
+
+I can help guide the brainstorming process once I understand what you're aiming for.`;
   }
 
-  // Creative and coding help
-  if (message.includes('creative') || message.includes('ideas') || message.includes('brainstorm')) {
-    return `Great! I'd love to help you brainstorm creative ideas. As a Kalinga University AI assistant, I can help with:
+  // Study/Academic Help - Natural and supportive
+  if (message.includes('study') || message.includes('exam') || message.includes('learn') || message.includes('academic')) {
+    return `I understand that academic success requires effective study strategies and good planning. There are several approaches that can help you study more efficiently and retain information better.
 
-💡 **Academic Projects**: Research topics, presentation ideas, innovation projects
-💡 **Technical Solutions**: Software development, engineering designs, problem-solving
-💡 **Entrepreneurship**: Business ideas, startup concepts, innovation challenges
-💡 **Creative Writing**: Essays, reports, technical documentation
+Some proven techniques include:
+- Active recall: Testing yourself on material rather than just re-reading
+- Spaced repetition: Reviewing material at increasing intervals
+- Breaking down complex topics into smaller, manageable chunks
+- Creating visual aids like mind maps or diagrams
+- Teaching concepts to others or explaining them out loud
 
-What specific area would you like to explore? Share your project or challenge, and I'll help generate innovative ideas!`;
+Your specific study needs might vary depending on your subject, learning style, and current challenges. What particular area are you focusing on, or what specific study challenges are you facing? I can provide more targeted advice based on your situation.`;
   }
 
-  if (message.includes('code') || message.includes('programming') || message.includes('software')) {
-    return `I'm here to help with your programming and software development needs! As your Kalinga University AI assistant, I can assist with:
+  // General conversational responses
+  if (message.includes('hello') || message.includes('hi') || message.includes('hey')) {
+    return `Hello! I'm here to help you with questions, learning, problem-solving, or just having a conversation. 
 
-💻 **Programming Languages**: Python, Java, C++, JavaScript, and more
-💻 **Web Development**: HTML, CSS, React, Node.js, databases
-💻 **Data Structures & Algorithms**: Problem-solving techniques
-💻 **Software Engineering**: Best practices, design patterns, project architecture
-💻 **Academic Projects**: Lab assignments, final year projects
-
-What programming concept or problem would you like help with? Feel free to share your code or describe the challenge you're facing!`;
+Whether you need assistance with academic topics, want to discuss ideas, need help with technical problems, or are curious about something, I'm ready to help. What's on your mind today?`;
   }
 
-  // Learning and education
-  if (message.includes('learn') || message.includes('study') || message.includes('teach') || message.includes('explain')) {
-    return `Excellent! Learning is at the heart of what we do at Kalinga University. I can help you with:
+  if (message.includes('how are you') || message.includes('what are you')) {
+    return `I'm an AI assistant designed to be helpful, accurate, and conversational. I'm functioning well and ready to assist you with a wide range of topics and questions.
 
-📚 **Academic Subjects**: Engineering, Management, Science, Technology
-📚 **Study Techniques**: Effective learning strategies, exam preparation
-📚 **Research Methods**: How to conduct academic research, citation styles
-📚 **Skill Development**: Technical skills, soft skills, career preparation
-📚 **Industry Trends**: Latest developments in technology and business
+I can help with academic subjects, provide explanations, assist with problem-solving, engage in creative tasks, and have conversations on many topics. I aim to provide thoughtful responses tailored to what you're looking for.
 
-What subject or topic would you like to explore? I'm here to make learning engaging and effective for you!`;
+What would you like to explore or discuss today?`;
   }
 
-  // Analysis and data
-  if (message.includes('analysis') || message.includes('data') || message.includes('research')) {
-    return `I'd be happy to help with analysis and research! As a Kalinga University AI assistant, I can support:
+  // Default response - Helpful and engaging
+  return `I'm here to help with whatever you'd like to discuss or work on. I can assist with a wide range of topics including academic subjects, creative projects, problem-solving, explanations of concepts, or just having an interesting conversation.
 
-📊 **Data Analysis**: Statistical methods, data interpretation, visualization
-📊 **Research Projects**: Literature review, methodology, hypothesis testing
-📊 **Academic Research**: Thesis writing, research proposal development
-📊 **Business Analysis**: Market research, financial analysis, case studies
-📊 **Technical Analysis**: System analysis, performance evaluation
+Some things I'm particularly good at helping with:
+- Explaining complex topics in understandable ways
+- Helping with writing and research
+- Programming and technical questions
+- Creative brainstorming and ideation
+- Study strategies and learning techniques
+- General questions and curiosity-driven conversations
 
-What specific analysis or research project are you working on? Share your data or research question, and I'll guide you through the process!`;
-  }
-
-  // Default response
-  return `Hello! I'm KalingaAI, your intelligent assistant created specifically for Kalinga University, Raipur. 
-
-I'm here to help you with:
-🎓 Academic support and course information
-💻 Programming and technical assistance  
-📚 Research and study guidance
-💡 Creative problem-solving and brainstorming
-📊 Data analysis and academic projects
-🏫 University facilities and campus life
-
-As a student or member of the Kalinga University community, feel free to ask me anything! What can I help you with today?
-
-*Note: For the most comprehensive AI experience, please ensure TinyLLaMA is connected via Ollama for advanced responses.*`;
+What would you like to explore or get help with today? Feel free to ask about anything that interests you or any challenge you're facing.`;
 }
 
 async function getOllamaResponse(prompt: string): Promise<string> {
