@@ -123,4 +123,106 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+// Simple in-memory storage for conversations and messages (no database required)
+class MemStorage implements IStorage {
+  private conversations: Map<number, Conversation> = new Map();
+  private messages: Map<number, Message[]> = new Map();
+  private nextConversationId = 1;
+  private nextMessageId = 1;
+
+  // User operations (simplified - no database)
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return undefined; // No user auth
+  }
+
+  async getUserById(id: number): Promise<User | undefined> {
+    return undefined; // No user auth
+  }
+
+  async createUser(userData: InsertUser): Promise<User> {
+    throw new Error("User creation not supported in simplified mode");
+  }
+
+  async verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
+    return false; // No auth
+  }
+
+  // Conversation operations
+  async getConversations(userId: number): Promise<Conversation[]> {
+    return Array.from(this.conversations.values())
+      .filter(conv => conv.userId === userId)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  async getConversation(id: number, userId: number): Promise<Conversation | undefined> {
+    const conversation = this.conversations.get(id);
+    return conversation?.userId === userId ? conversation : undefined;
+  }
+
+  async createConversation(conversationData: InsertConversation & { userId: number }): Promise<Conversation> {
+    const now = new Date();
+    const conversation: Conversation = {
+      id: this.nextConversationId++,
+      userId: conversationData.userId,
+      title: conversationData.title,
+      createdAt: now,
+      updatedAt: now
+    };
+    
+    this.conversations.set(conversation.id, conversation);
+    this.messages.set(conversation.id, []);
+    return conversation;
+  }
+
+  async updateConversationTitle(id: number, title: string): Promise<void> {
+    const conversation = this.conversations.get(id);
+    if (conversation) {
+      conversation.title = title;
+      conversation.updatedAt = new Date();
+      this.conversations.set(id, conversation);
+    }
+  }
+
+  async deleteConversation(id: number, userId: number): Promise<void> {
+    const conversation = this.conversations.get(id);
+    if (conversation?.userId === userId) {
+      this.conversations.delete(id);
+      this.messages.delete(id);
+    }
+  }
+
+  // Message operations
+  async getMessages(conversationId: number): Promise<Message[]> {
+    return this.messages.get(conversationId) || [];
+  }
+
+  async createMessage(messageData: InsertMessage): Promise<Message> {
+    const now = new Date();
+    const message: Message = {
+      id: this.nextMessageId++,
+      conversationId: messageData.conversationId,
+      content: messageData.content,
+      sender: messageData.sender,
+      timestamp: now
+    };
+
+    const conversationMessages = this.messages.get(messageData.conversationId) || [];
+    conversationMessages.push(message);
+    this.messages.set(messageData.conversationId, conversationMessages);
+
+    // Update conversation timestamp
+    const conversation = this.conversations.get(messageData.conversationId);
+    if (conversation) {
+      conversation.updatedAt = now;
+      this.conversations.set(messageData.conversationId, conversation);
+    }
+
+    return message;
+  }
+
+  async deleteMessages(conversationId: number): Promise<void> {
+    this.messages.set(conversationId, []);
+  }
+}
+
+export const storage = new MemStorage();

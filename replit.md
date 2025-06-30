@@ -6,12 +6,10 @@ A complete ChatGPT clone specifically designed for Kalinga University, Raipur. F
 ## Architecture
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
 - **Backend**: Express.js + Node.js
-- **Database**: PostgreSQL with Drizzle ORM
-- **Authentication**: Express sessions with bcrypt password hashing
+- **Storage**: In-memory storage for chat sessions
 - **AI Integration**: TinyLLaMA via Ollama + Fallback Kalinga University responses
 
 ## Key Features
-✅ Complete user authentication (login/register)
 ✅ ChatGPT-style interface with sidebar
 ✅ Real-time chat with typing indicators
 ✅ Conversation management (create/delete/history)
@@ -19,7 +17,7 @@ A complete ChatGPT clone specifically designed for Kalinga University, Raipur. F
 ✅ Interactive example prompts
 ✅ Dark/light theme toggle
 ✅ Responsive design for all devices
-✅ Database persistence for users and chats
+✅ In-memory storage for chat sessions (no database complexity)
 
 ## User Preferences
 - Clean, modern ChatGPT-style interface
@@ -36,12 +34,14 @@ A complete ChatGPT clone specifically designed for Kalinga University, Raipur. F
 - **2024-12-30**: Enhanced user interface with user details display in header
 - **2024-12-30**: Improved AI responses to be more ChatGPT-like and natural
 - **2024-12-30**: Added automatic chat title generation based on conversation content
+- **2024-12-30**: Removed database login system for simplified deployment
+- **2024-12-30**: Switched to in-memory storage for chat sessions
 
 ## Current Status
-✅ **Complete**: Full authentication system with user profile display
-✅ **Complete**: Natural ChatGPT-style AI responses without automated branding
+✅ **Complete**: Simplified chat application without authentication complexity
+✅ **Complete**: Natural ChatGPT-style AI responses with Kalinga University context
 ✅ **Complete**: Automatic chat title generation as conversations progress
-🔧 **Next**: Final testing and deployment readiness
+✅ **Complete**: Ready for deployment without database dependencies
 
 ## Technical Notes
 - Uses PostgreSQL database with proper schema design

@@ -15,13 +15,8 @@ const sessionStore = new pgStore({
   tableName: "user_sessions",
 });
 
-// Auth middleware
-const requireAuth = (req: any, res: any, next: any) => {
-  if (!req.session.userId) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-  next();
-};
+// Default user ID for conversations (no auth required)
+const defaultUserId = 1;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Session setup
@@ -37,89 +32,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   }));
 
-  // Auth routes
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const validatedData = insertUserSchema.parse(req.body);
-      
-      // Check if user already exists
-      const existingUser = await storage.getUserByEmail(validatedData.email);
-      if (existingUser) {
-        return res.status(400).json({ error: "User already exists with this email" });
-      }
-
-      const user = await storage.createUser(validatedData);
-      (req as any).session.userId = user.id;
-      
-      res.json({ 
-        user: { id: user.id, email: user.email, name: user.name }, 
-        message: "Registration successful" 
-      });
-    } catch (error) {
-      console.error("Error registering user:", error);
-      res.status(400).json({ error: "Failed to register user" });
-    }
-  });
-
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const validatedData = loginUserSchema.parse(req.body);
-      
-      const user = await storage.getUserByEmail(validatedData.email);
-      if (!user) {
-        return res.status(401).json({ error: "Invalid email or password" });
-      }
-
-      const isValidPassword = await storage.verifyPassword(validatedData.password, user.password);
-      if (!isValidPassword) {
-        return res.status(401).json({ error: "Invalid email or password" });
-      }
-
-      (req as any).session.userId = user.id;
-      
-      res.json({ 
-        user: { id: user.id, email: user.email, name: user.name }, 
-        message: "Login successful" 
-      });
-    } catch (error) {
-      console.error("Error logging in user:", error);
-      res.status(400).json({ error: "Failed to login" });
-    }
-  });
-
-  app.post("/api/auth/logout", (req, res) => {
-    (req as any).session.destroy((err: any) => {
-      if (err) {
-        return res.status(500).json({ error: "Failed to logout" });
-      }
-      res.json({ message: "Logout successful" });
+  // Simple auth (no database required)
+  app.get("/api/auth/me", (req, res) => {
+    // Return a default user for the chat interface
+    res.json({ 
+      user: { 
+        id: 1, 
+        email: "student@kalingauniversity.ac.in", 
+        name: "Kalinga Student" 
+      } 
     });
   });
 
-  app.get("/api/auth/me", requireAuth, async (req, res) => {
+  // Get all conversations
+  app.get("/api/conversations", async (req, res) => {
     try {
-      const userId = (req as any).session.userId;
-      const user = await storage.getUserById(userId);
-      if (!user) {
-        return res.status(401).json({ error: "User not found" });
-      }
-      res.json({ 
-        user: { 
-          id: user.id, 
-          email: user.email, 
-          name: user.name 
-        } 
-      });
-    } catch (error) {
-      res.status(401).json({ error: "Not authenticated" });
-    }
-  });
-
-  // Get all conversations for authenticated user
-  app.get("/api/conversations", requireAuth, async (req, res) => {
-    try {
-      const userId = (req as any).session.userId;
-      const conversations = await storage.getConversations(userId);
+      const conversations = await storage.getConversations(defaultUserId);
       res.json(conversations);
     } catch (error) {
       console.error("Error getting conversations:", error);
@@ -127,12 +55,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create new conversation for authenticated user
-  app.post("/api/conversations", requireAuth, async (req, res) => {
+  // Create new conversation
+  app.post("/api/conversations", async (req, res) => {
     try {
-      const userId = (req as any).session.userId;
       const validatedData = insertConversationSchema.parse(req.body);
-      const conversation = await storage.createConversation({ ...validatedData, userId });
+      const conversation = await storage.createConversation({ ...validatedData, userId: defaultUserId });
       res.json(conversation);
     } catch (error) {
       console.error("Error creating conversation:", error);
@@ -140,12 +67,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete conversation for authenticated user
-  app.delete("/api/conversations/:id", requireAuth, async (req, res) => {
+  // Delete conversation
+  app.delete("/api/conversations/:id", async (req, res) => {
     try {
-      const userId = (req as any).session.userId;
       const id = parseInt(req.params.id);
-      await storage.deleteConversation(id, userId);
+      await storage.deleteConversation(id, defaultUserId);
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting conversation:", error);

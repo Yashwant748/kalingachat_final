@@ -105,11 +105,11 @@ export default function ChatInterface() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => window.location.href = '/api/auth/logout'}
+                onClick={() => window.location.reload()}
                 className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground"
-                title="Logout"
+                title="Refresh Chat"
               >
-                <i className="fas fa-sign-out-alt" />
+                <i className="fas fa-sync-alt" />
               </Button>
             </div>
           </div>
