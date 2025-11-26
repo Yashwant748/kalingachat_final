@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config();
 import { users, conversations, messages, type User, type Conversation, type Message, type InsertUser, type InsertConversation, type InsertMessage } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -9,18 +11,19 @@ export interface IStorage {
   getUserById(id: number): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   verifyPassword(password: string, hashedPassword: string): Promise<boolean>;
-  
+
   // Conversations
   getConversations(userId: number): Promise<Conversation[]>;
   getConversation(id: number, userId: number): Promise<Conversation | undefined>;
   createConversation(conversation: InsertConversation & { userId: number }): Promise<Conversation>;
   updateConversationTitle(id: number, title: string): Promise<void>;
   deleteConversation(id: number, userId: number): Promise<void>;
-  
+
   // Messages
   getMessages(conversationId: number): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   deleteMessages(conversationId: number): Promise<void>;
+  updateMessageContent(id: number, content: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -106,13 +109,13 @@ export class DatabaseStorage implements IStorage {
       .insert(messages)
       .values(messageData)
       .returning();
-    
+
     // Update conversation's updatedAt timestamp
     await db
       .update(conversations)
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, messageData.conversationId));
-    
+
     return message;
   }
 
@@ -121,37 +124,64 @@ export class DatabaseStorage implements IStorage {
       .delete(messages)
       .where(eq(messages.conversationId, conversationId));
   }
+
+  async updateMessageContent(id: number, content: string): Promise<void> {
+    await db
+      .update(messages)
+      .set({ content })
+      .where(eq(messages.id, id));
+  }
 }
 
 // Simple in-memory storage for conversations and messages (no database required)
-class MemStorage implements IStorage {
+export class MemStorage implements IStorage {
+  private users: Map<number, User> = new Map();
   private conversations: Map<number, Conversation> = new Map();
   private messages: Map<number, Message[]> = new Map();
+  private nextUserId = 1;
   private nextConversationId = 1;
   private nextMessageId = 1;
 
-  // User operations (simplified - no database)
+  // User operations
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return undefined; // No user auth
+    return Array.from(this.users.values()).find(
+      (user) => user.email === email
+    );
   }
 
   async getUserById(id: number): Promise<User | undefined> {
-    return undefined; // No user auth
+    return this.users.get(id);
   }
 
   async createUser(userData: InsertUser): Promise<User> {
-    throw new Error("User creation not supported in simplified mode");
+    const fs = await import('fs');
+    fs.appendFileSync('server_debug.log', `[Storage] Creating user: ${JSON.stringify(userData)}\n`);
+
+    // const hashedPassword = await bcrypt.hash(userData.password, 10); 
+    // SKIP BCRYPT FOR DEBUGGING
+    const hashedPassword = userData.password;
+
+    const id = this.nextUserId++;
+    const user: User = {
+      id,
+      email: userData.email,
+      password: hashedPassword,
+      name: userData.name,
+      createdAt: new Date(),
+    };
+    this.users.set(id, user);
+    return user;
   }
 
   async verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
-    return false; // No auth
+    return await bcrypt.compare(password, hashedPassword);
   }
 
   // Conversation operations
   async getConversations(userId: number): Promise<Conversation[]> {
     return Array.from(this.conversations.values())
-      .filter(conv => conv.userId === userId)
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      .filter((conv) => conv.userId === userId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }
 
   async getConversation(id: number, userId: number): Promise<Conversation | undefined> {
@@ -166,9 +196,9 @@ class MemStorage implements IStorage {
       userId: conversationData.userId,
       title: conversationData.title,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
-    
+
     this.conversations.set(conversation.id, conversation);
     this.messages.set(conversation.id, []);
     return conversation;
@@ -203,7 +233,7 @@ class MemStorage implements IStorage {
       conversationId: messageData.conversationId,
       content: messageData.content,
       sender: messageData.sender,
-      timestamp: now
+      timestamp: now,
     };
 
     const conversationMessages = this.messages.get(messageData.conversationId) || [];
@@ -222,6 +252,17 @@ class MemStorage implements IStorage {
 
   async deleteMessages(conversationId: number): Promise<void> {
     this.messages.set(conversationId, []);
+  }
+
+  async updateMessageContent(id: number, content: string): Promise<void> {
+    for (const [conversationId, msgs] of Array.from(this.messages.entries())) {
+      const msgIndex = msgs.findIndex((m: Message) => m.id === id);
+      if (msgIndex !== -1) {
+        msgs[msgIndex].content = content;
+        this.messages.set(conversationId, msgs);
+        return;
+      }
+    }
   }
 }
 

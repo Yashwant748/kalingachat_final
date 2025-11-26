@@ -4,28 +4,41 @@ import { useAuth } from "@/hooks/useAuth";
 import MessageBubble from "./MessageBubble";
 import ThemeToggle from "./ThemeToggle";
 import Sidebar from "./Sidebar";
+import TypingIndicator from "./TypingIndicator";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ChatInterface() {
   const [inputMessage, setInputMessage] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const { toast } = useToast();
   const { user } = useAuth();
+
   const {
     messages,
+    conversations,
     currentConversationId,
     health,
     isTyping,
     messagesEndRef,
     isSending,
-    sendMessage
+    sendMessage,
+    chatInitializing,
+    refetchConversations,
+    refetchMessages,
+    setCurrentConversationId,
+    startNewConversation,
+    deleteConversationMutation
   } = useChat();
 
   const isConnected = health?.ollama || false;
 
+  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -33,13 +46,25 @@ export default function ChatInterface() {
     }
   }, [inputMessage]);
 
+  // Smooth scroll to bottom on new messages
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isTyping]);
+
   const handleSendMessage = (message?: string) => {
+    if (chatInitializing) return;
     const messageToSend = message || inputMessage.trim();
     if (!messageToSend || isSending || isTyping) return;
-    
+
     sendMessage(messageToSend);
     if (!message) {
       setInputMessage("");
+      // Reset height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
     }
   };
 
@@ -50,63 +75,90 @@ export default function ChatInterface() {
     }
   };
 
+  const handleRefresh = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    toast({
+      title: "Refreshing chat...",
+      duration: 1000,
+    });
+    refetchConversations();
+    refetchMessages();
+  };
+
+  const handleDeleteConversation = (id: number) => {
+    if (conversations.length <= 1) {
+      toast({
+        title: "Cannot delete last chat",
+        description: "You must have at least one conversation.",
+        variant: "destructive",
+      });
+      return;
+    }
+    deleteConversationMutation.mutate(id);
+  };
+
   return (
-    <div className="flex h-screen bg-background">
-      {/* Sidebar */}
-      <Sidebar 
-        isOpen={isSidebarOpen} 
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)} 
+    <div className="flex h-screen bg-glow overflow-hidden">
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        conversations={conversations}
+        currentConversationId={currentConversationId}
+        onSelectConversation={setCurrentConversationId}
+        onNewConversation={startNewConversation}
+        onDeleteConversation={handleDeleteConversation}
+        isCreating={chatInitializing}
       />
-      
+
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative animate-fade-in">
         {/* Header */}
-        <header className="border-b border-border bg-card px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+        <header className="absolute top-0 left-0 right-0 z-10 px-6 py-4 glass-panel border-b border-white/10 backdrop-blur-xl">
+          <div className="flex items-center justify-between max-w-5xl mx-auto w-full">
+            <div className="flex items-center space-x-4">
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="lg:hidden w-8 h-8 p-0"
+                className="lg:hidden w-9 h-9 rounded-full hover:bg-white/10"
               >
                 <i className="fas fa-bars" />
               </Button>
-              
+
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 rounded-lg gradient-cyber flex items-center justify-center">
-                  <i className="fas fa-brain text-white text-sm" />
-                </div>
+                <div className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${isConnected ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-red-500 animate-pulse'}`} />
                 <div>
-                  <h1 className="font-orbitron font-bold text-lg text-foreground">
-                    KalingaAI Chat
+                  <h1 className="font-orbitron font-bold text-lg leading-none tracking-tight">
+                    KalingaAI
                   </h1>
-                  <p className="text-xs text-muted-foreground">
-                    {isConnected ? 'Connected to TinyLLaMA' : 'Waiting for AI connection...'}
+                  <p className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase mt-1">
+                    {isConnected ? 'System Online' : 'Connecting...'}
                   </p>
                 </div>
               </div>
             </div>
-            
-            <div className="flex items-center space-x-3">
+
+            <div className="flex items-center space-x-4">
               {user && (
-                <div className="flex items-center space-x-2 text-muted-foreground">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">
+                <div className="hidden sm:flex items-center space-x-3 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center shadow-md">
+                    <span className="text-white text-[10px] font-bold">
                       {user.name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
                     </span>
                   </div>
-                  <span className="text-sm font-medium hidden sm:block">
-                    {user.name || user.email}
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {user.name || user.email?.split('@')[0] || 'User'}
                   </span>
                 </div>
               )}
+
               <ThemeToggle />
+
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={() => window.location.reload()}
-                className="w-8 h-8 p-0 text-muted-foreground hover:text-foreground"
+                size="icon"
+                onClick={handleRefresh}
+                className="w-9 h-9 rounded-full hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
                 title="Refresh Chat"
               >
                 <i className="fas fa-sync-alt" />
@@ -115,89 +167,50 @@ export default function ChatInterface() {
           </div>
         </header>
 
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-hidden">
-          {messages.length === 0 ? (
-            /* Welcome Screen */
-            <div className="h-full flex items-center justify-center p-8">
-              <div className="text-center max-w-2xl">
-                <div className="w-16 h-16 mx-auto rounded-2xl gradient-cyber flex items-center justify-center mb-6">
-                  <i className="fas fa-brain text-white text-2xl" />
+        {/* Messages Area */}
+        <div className="flex-1 overflow-hidden pt-[72px] pb-[80px]">
+          {messages.length === 0 && !isTyping ? (
+            <div className="h-full flex items-center justify-center p-8 animate-fade-in">
+              <div className="text-center max-w-2xl w-full">
+                <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center mb-8 shadow-2xl shadow-purple-500/30 glow-purple">
+                  <i className="fas fa-brain text-white text-3xl" />
                 </div>
-                <h2 className="font-orbitron font-bold text-3xl text-foreground mb-4">
+                <h2 className="font-orbitron font-bold text-4xl mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
                   Welcome to KalingaAI
                 </h2>
-                <p className="text-muted-foreground text-lg mb-8">
-                  Your advanced AI assistant powered by TinyLLaMA. Ask questions, get help with tasks, or have a conversation.
+                <p className="text-muted-foreground text-lg mb-12 max-w-lg mx-auto leading-relaxed">
+                  Your advanced AI assistant. Ready to help you learn, create, and explore.
                 </p>
-                
-                {/* Example prompts */}
-                <div className="grid md:grid-cols-2 gap-4 mb-8">
-                  <div 
-                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => handleSendMessage("Help me brainstorm creative ideas for my final year project at Kalinga University")}
-                  >
-                    <div className="flex items-center space-x-3 mb-2">
-                      <i className="fas fa-lightbulb text-primary" />
-                      <span className="font-medium">Creative Ideas</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground text-left">
-                      Help me brainstorm ideas for a project
-                    </p>
-                  </div>
-                  
-                  <div 
-                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => handleSendMessage("I need help with programming concepts and coding best practices")}
-                  >
-                    <div className="flex items-center space-x-3 mb-2">
-                      <i className="fas fa-code text-primary" />
-                      <span className="font-medium">Code Help</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground text-left">
-                      Explain a programming concept
-                    </p>
-                  </div>
-                  
-                  <div 
-                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => handleSendMessage("Teach me about emerging technologies and study techniques for my courses")}
-                  >
-                    <div className="flex items-center space-x-3 mb-2">
-                      <i className="fas fa-book text-primary" />
-                      <span className="font-medium">Learning</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground text-left">
-                      Teach me about a new topic
-                    </p>
-                  </div>
-                  
-                  <div 
-                    className="bg-card border border-border rounded-xl p-4 cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => handleSendMessage("Help me analyze data and provide insights for my research project")}
-                  >
-                    <div className="flex items-center space-x-3 mb-2">
-                      <i className="fas fa-chart-line text-primary" />
-                      <span className="font-medium">Analysis</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground text-left">
-                      Analyze data and provide insights
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center justify-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
-                  <span className="text-sm text-muted-foreground">
-                    {isConnected ? 'AI service is online' : 'Connecting to AI service...'}
-                  </span>
+
+                <div className="grid md:grid-cols-2 gap-4 max-w-3xl mx-auto">
+                  {[
+                    { icon: "lightbulb", title: "Creative Ideas", desc: "Brainstorm project concepts", prompt: "Help me brainstorm creative ideas for my final year project" },
+                    { icon: "code", title: "Code Help", desc: "Debug & explain code", prompt: "I need help with programming concepts and coding best practices" },
+                    { icon: "book", title: "Learning", desc: "Explain complex topics", prompt: "Teach me about emerging technologies and study techniques" },
+                    { icon: "chart-line", title: "Analysis", desc: "Data insights & research", prompt: "Help me analyze data and provide insights for my research project" }
+                  ].map((item, i) => (
+                    <button
+                      key={i}
+                      className="group text-left p-5 rounded-2xl glass-card hover:bg-white/10 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg border border-white/5"
+                      onClick={() => handleSendMessage(item.prompt)}
+                    >
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                          <i className={`fas fa-${item.icon}`} />
+                        </div>
+                        <span className="font-semibold text-foreground">{item.title}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground pl-11">
+                        {item.desc}
+                      </p>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
           ) : (
-            /* Messages List */
-            <ScrollArea className="h-full">
-              <div className="max-w-4xl mx-auto p-4 space-y-6">
+            <ScrollArea className="h-full px-4" ref={scrollRef}>
+              <div className="w-full max-w-5xl mx-auto py-6 space-y-8">
                 {messages.map((message, index) => (
                   <MessageBubble
                     key={message.id}
@@ -205,69 +218,61 @@ export default function ChatInterface() {
                     isLast={index === messages.length - 1}
                   />
                 ))}
-                
-                {/* Typing Indicator */}
-                {isTyping && (
-                  <div className="flex items-start space-x-4 animate-slide-in">
-                    <div className="w-8 h-8 rounded-full gradient-neon flex items-center justify-center flex-shrink-0">
-                      <i className="fas fa-brain text-white text-sm" />
-                    </div>
-                    <div className="bg-card border border-border rounded-2xl rounded-tl-sm p-4">
-                      <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" />
-                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                        <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div ref={messagesEndRef} />
+
+                {isTyping && <TypingIndicator />}
+
+                <div ref={messagesEndRef} className="h-4" />
               </div>
             </ScrollArea>
           )}
         </div>
-        
+
         {/* Input Area */}
-        <div className="border-t border-border bg-card p-4">
-          <div className="max-w-4xl mx-auto">
-            <div className="relative">
-              <Textarea
-                ref={textareaRef}
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Message KalingaAI..."
-                className="w-full bg-background border border-border rounded-xl px-4 py-3 pr-12 text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all duration-200 min-h-[52px] max-h-[200px]"
-                disabled={isSending || isTyping}
-                rows={1}
-              />
-              
-              <Button
-                onClick={() => handleSendMessage()}
-                disabled={!inputMessage.trim() || isSending || isTyping}
-                size="sm"
-                className="absolute right-2 bottom-2 w-8 h-8 p-0 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSending || isTyping ? (
-                  <i className="fas fa-spinner fa-spin text-sm" />
-                ) : (
-                  <i className="fas fa-paper-plane text-sm text-primary-foreground" />
-                )}
-              </Button>
-            </div>
-            
-            <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-              <div className="flex items-center space-x-4">
-                <span className="flex items-center space-x-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
-                </span>
+        <footer className="absolute bottom-0 left-0 right-0 p-4 glass-panel border-t border-white/10 backdrop-blur-xl">
+          <div className="w-full max-w-[900px] mx-auto">
+            {chatInitializing ? (
+              <div className="flex items-center justify-center py-3 text-muted-foreground">
+                <span className="animate-spin mr-2"><i className="fas fa-spinner" /></span>
+                <span className="text-sm font-medium">Initializing secure connection...</span>
               </div>
-              <span>Press Enter to send</span>
+            ) : (
+              <div className="relative flex items-end gap-2 bg-card/50 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-lg focus-within:ring-2 focus-within:ring-primary/50 focus-within:border-primary/50 transition-all duration-300">
+                <Textarea
+                  ref={textareaRef}
+                  className="flex-1 min-h-[44px] max-h-[160px] bg-transparent border-0 focus-visible:ring-0 resize-none py-3 px-4 text-base placeholder:text-muted-foreground/50 font-inter"
+                  placeholder="Message KalingaAI..."
+                  value={inputMessage}
+                  onChange={e => setInputMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={isSending || isTyping || chatInitializing}
+                  rows={1}
+                />
+                <Button
+                  onClick={() => handleSendMessage()}
+                  disabled={isSending || isTyping || chatInitializing || !inputMessage.trim()}
+                  className={`
+                    mb-1 mr-1 h-10 w-10 rounded-xl transition-all duration-300 shadow-md
+                    ${inputMessage.trim()
+                      ? 'bg-primary hover:bg-primary/90 text-white translate-y-0 opacity-100'
+                      : 'bg-muted text-muted-foreground translate-y-0 opacity-50'
+                    }
+                  `}
+                >
+                  {isSending || isTyping ? (
+                    <span className="animate-spin"><i className="fas fa-spinner" /></span>
+                  ) : (
+                    <i className="fas fa-arrow-up" />
+                  )}
+                </Button>
+              </div>
+            )}
+            <div className="text-center mt-2">
+              <p className="text-[10px] text-muted-foreground/60">
+                KalingaAI can make mistakes. Consider checking important information.
+              </p>
             </div>
           </div>
-        </div>
+        </footer>
       </div>
     </div>
   );

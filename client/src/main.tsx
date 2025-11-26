@@ -1,10 +1,21 @@
-import { createRoot } from "react-dom/client";
+import React from "react";
+import ReactDOM from "react-dom/client";
 import App from "./App";
+
+// Tailwind CSS
 import "./index.css";
 
-const rootElement = document.getElementById("root");
-if (!rootElement) {
-  throw new Error("Root element not found");
+// Initialize dark mode by default
+const savedTheme = localStorage.getItem("theme");
+if (!savedTheme) {
+  document.documentElement.classList.add("dark");
+  localStorage.setItem("theme", "dark");
+} else if (savedTheme === "dark") {
+  document.documentElement.classList.add("dark");
 }
 
-createRoot(rootElement).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

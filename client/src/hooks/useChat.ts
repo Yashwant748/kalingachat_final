@@ -1,8 +1,10 @@
+// Copy and paste this full code into useChat.ts
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import type { Conversation, Message } from "@shared/schema";
+import { chatApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import type { Conversation, Message } from "@shared/schema";
 
 export function useChat() {
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
@@ -10,172 +12,169 @@ export function useChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { isAuthenticated } = useAuth();
 
-  // Get conversations
+  // --- DATA FETCHING ---
+
   const {
-    data: conversations = [],
-    isLoading: conversationsLoading
+    data: conversations,
+    isLoading: conversationsLoading,
+    refetch: refetchConversations
   } = useQuery({
-    queryKey: ["/api/conversations"],
-    queryFn: async () => {
-      const convs = await api.getConversations();
-      if (convs.length > 0 && !currentConversationId) {
-        setCurrentConversationId(convs[0].id);
-      }
-      return convs;
-    }
+    queryKey: ["conversations"],
+    queryFn: async (): Promise<Conversation[]> => {
+      const res = await chatApi.getConversations();
+      return res.data;
+    },
+    enabled: !!isAuthenticated,
   });
 
-  // Get messages for current conversation
   const {
-    data: messages = [],
-    isLoading: messagesLoading
+    data: messages,
+    refetch: refetchMessages
   } = useQuery({
-    queryKey: ["/api/conversations", currentConversationId, "messages"],
-    queryFn: () => currentConversationId ? api.getMessages(currentConversationId) : [],
-    enabled: !!currentConversationId
+    queryKey: ["messages", currentConversationId],
+    queryFn: async (): Promise<Message[]> => {
+      if (!currentConversationId) return [];
+      const res = await chatApi.getMessages(currentConversationId);
+      return res.data;
+    },
+    enabled: !!isAuthenticated && !!currentConversationId,
   });
 
-  // Health check
   const { data: health } = useQuery({
-    queryKey: ["/api/health"],
-    queryFn: api.health,
-    refetchInterval: 30000 // Check every 30 seconds
+    queryKey: ["health"],
+    queryFn: chatApi.health,
+    refetchInterval: 30000,
   });
 
-  // Create conversation mutation
+  // --- ACTIONS ---
+
   const createConversationMutation = useMutation({
-    mutationFn: api.createConversation,
-    onSuccess: (conversation) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-      setCurrentConversationId(conversation.id);
-      toast({
-        title: "New conversation created",
-        description: "You can start chatting now!"
-      });
+    mutationFn: async (data: any) => {
+      const res = await chatApi.createConversation(data);
+      return res.data;
     },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to create conversation",
-        variant: "destructive"
-      });
-    }
+    onSuccess: (newConversation) => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      setCurrentConversationId(newConversation.id);
+      toast({ title: "New chat created" });
+    },
   });
 
-  // Send message mutation
   const sendMessageMutation = useMutation({
-    mutationFn: ({ conversationId, content }: { conversationId: number; content: string }) =>
-      api.sendMessage(conversationId, content),
-    onMutate: () => {
-      setIsTyping(true);
-    },
-    onSuccess: (data) => {
-      setIsTyping(false);
-      queryClient.invalidateQueries({
-        queryKey: ["/api/conversations", currentConversationId, "messages"]
-      });
-      if (data.error) {
-        toast({
-          title: "Warning",
-          description: data.error,
-          variant: "destructive"
+    mutationFn: async (variables: { conversationId: number; content: string }) => {
+      // 1. Optimistically update UI or just let the stream handle it
+      // We'll use a direct stream handler here
+      let aiMessageId: number | null = null;
+      let fullContent = "";
+
+      await chatApi.sendMessageStream(variables.conversationId, variables.content, (chunk) => {
+        // Check if it's the header chunk
+        try {
+          if (!aiMessageId && chunk.trim().startsWith('{')) {
+            const header = JSON.parse(chunk);
+            if (header.aiMessageId) {
+              aiMessageId = header.aiMessageId;
+              // Force a refetch to show the new empty message
+              queryClient.invalidateQueries({ queryKey: ["messages", currentConversationId] });
+              return;
+            }
+          }
+        } catch (e) { }
+
+        // Append to content
+        fullContent += chunk;
+
+        // Update the message in the cache directly for smooth streaming
+        queryClient.setQueryData(["messages", currentConversationId], (old: Message[] | undefined) => {
+          if (!old) return [];
+          if (!aiMessageId) return old; // Wait for ID
+
+          const msgIndex = old.findIndex(m => m.id === aiMessageId);
+          if (msgIndex === -1) {
+            // If not found (maybe refetch hasn't happened), we might need to wait or append
+            // For now, let's rely on the initial refetch to add the message, then update it
+            return old;
+          }
+
+          const newMessages = [...old];
+          newMessages[msgIndex] = {
+            ...newMessages[msgIndex],
+            content: fullContent
+          };
+          return newMessages;
         });
-      }
-    },
-    onError: (error) => {
-      setIsTyping(false);
-      toast({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
-        variant: "destructive"
       });
-      console.error("Send message error:", error);
-    }
-  });
-
-  // Delete conversation mutation
-  const deleteConversationMutation = useMutation({
-    mutationFn: api.deleteConversation,
+      return { success: true };
+    },
+    onMutate: () => setIsTyping(true),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-      setCurrentConversationId(null);
-      toast({
-        title: "Conversation deleted",
-        description: "Chat history has been cleared"
-      });
+      setIsTyping(false);
+      queryClient.invalidateQueries({ queryKey: ["messages", currentConversationId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to delete conversation",
-        variant: "destructive"
-      });
+    onError: () => setIsTyping(false),
+  });
+
+  const deleteConversationMutation = useMutation({
+    mutationFn: chatApi.deleteConversation,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      setCurrentConversationId(null);
+      toast({ title: "Conversation deleted" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error deleting conversation", description: err.message, variant: "destructive" });
     }
   });
 
-  // Auto-scroll to bottom
+  // --- LOGIC ---
+
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (isAuthenticated && !conversationsLoading) {
+      if (conversations && conversations.length > 0 && !currentConversationId) {
+        setCurrentConversationId(conversations[0].id);
+      } else if (conversations && conversations.length === 0 && !createConversationMutation.isPending) {
+        createConversationMutation.mutate({ title: "New Chat" });
+      }
     }
+  }, [isAuthenticated, conversations, conversationsLoading, currentConversationId, createConversationMutation]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Create initial conversation if none exist
-  useEffect(() => {
-    if (!conversationsLoading && conversations.length === 0) {
-      createConversationMutation.mutate({ title: "New Chat" });
-    }
-  }, [conversations, conversationsLoading]);
+  // --- FUNCTIONS FOR THE UI ---
 
   const startNewConversation = () => {
-    createConversationMutation.mutate({
-      title: `Chat ${conversations.length + 1}`
-    });
+    createConversationMutation.mutate({ title: `New Chat` });
   };
 
   const sendMessage = (content: string) => {
-    if (!currentConversationId) {
-      toast({
-        title: "Error",
-        description: "No active conversation",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    sendMessageMutation.mutate({
-      conversationId: currentConversationId,
-      content
-    });
+    if (!currentConversationId) return;
+    sendMessageMutation.mutate({ conversationId: currentConversationId, content });
   };
 
-  const deleteCurrentConversation = () => {
-    if (currentConversationId) {
-      deleteConversationMutation.mutate(currentConversationId);
-    }
-  };
-
+  // --- THIS IS THE FIX ---
+  // We make sure to return an empty array [] if the data is 'undefined'
   return {
-    // Data
-    conversations,
-    messages,
+    conversations: conversations || [], // <-- FIX IS HERE
+    messages: messages || [], // <-- FIX IS HERE
     currentConversationId,
     health,
     isTyping,
     messagesEndRef,
-    
-    // Loading states
     conversationsLoading,
-    messagesLoading,
+    chatInitializing: conversationsLoading,
     isSending: sendMessageMutation.isPending,
     isCreating: createConversationMutation.isPending,
     isDeleting: deleteConversationMutation.isPending,
-    
-    // Actions
     setCurrentConversationId,
     startNewConversation,
     sendMessage,
-    deleteCurrentConversation
+    deleteConversationMutation,
+    refetchConversations,
+    refetchMessages,
   };
 }

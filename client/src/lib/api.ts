@@ -1,42 +1,63 @@
-import { apiRequest } from "./queryClient";
-import type { Conversation, Message, InsertConversation, InsertMessage } from "@shared/schema";
+import axios from "axios";
 
-export const api = {
-  // Health check
-  health: async (): Promise<{ status: string; ollama: boolean }> => {
-    const res = await apiRequest("GET", "/api/health");
-    return res.json();
-  },
+const api = axios.create({
+  // baseURL: "http://localhost:5000", // <--- REMOVED: Causes CORS. Use Vite proxy instead.
+  withCredentials: true,
+});
 
-  // Conversations
-  getConversations: async (): Promise<Conversation[]> => {
-    const res = await apiRequest("GET", "/api/conversations");
-    return res.json();
-  },
+// AUTH ROUTES
+export const authApi = {
+  login: (data: { email: string; password: string }) =>
+    api.post("/api/auth/login", data),
 
-  createConversation: async (data: InsertConversation): Promise<Conversation> => {
-    const res = await apiRequest("POST", "/api/conversations", data);
-    return res.json();
-  },
+  register: (data: { email: string; password: string }) =>
+    api.post("/api/auth/register", data),
 
-  deleteConversation: async (id: number): Promise<void> => {
-    await apiRequest("DELETE", `/api/conversations/${id}`);
-  },
-
-  // Messages
-  getMessages: async (conversationId: number): Promise<Message[]> => {
-    const res = await apiRequest("GET", `/api/conversations/${conversationId}/messages`);
-    return res.json();
-  },
-
-  sendMessage: async (conversationId: number, content: string): Promise<{
-    userMessage: Message;
-    aiMessage: Message;
-    error?: string;
-  }> => {
-    const res = await apiRequest("POST", `/api/conversations/${conversationId}/messages`, {
-      content
-    });
-    return res.json();
-  }
+  logout: () => api.post("/api/auth/logout"),
 };
+
+// CHAT ROUTES
+export const chatApi = {
+  getConversations: () => api.get("/api/conversations"),
+  createConversation: (data: any) => api.post("/api/conversations", data),
+  deleteConversation: (id: number) => api.delete(`/api/conversations/${id}`),
+
+  getMessages: (cid: number) =>
+    api.get(`/api/conversations/${cid}/messages`),
+
+  sendMessage: (cid: number, content: string) =>
+    api.post(`/api/conversations/${cid}/messages`, { content }),
+
+  sendMessageStream: async (cid: number, content: string, onChunk: (chunk: string) => void) => {
+    const response = await fetch(`/api/conversations/${cid}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error: ${response.statusText}`);
+    }
+
+    if (!response.body) return;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      onChunk(chunk);
+    }
+  },
+
+  health: async () => {
+    const res = await api.get("/api/health");
+    return res.data;
+  },
+};
+
+export default api;

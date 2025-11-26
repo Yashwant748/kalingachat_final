@@ -1,0 +1,4 @@
+ollama fastapi to cominuctae  with tinyt lamam model  i have one py file to hancle json 
+ react js for  frontend development  
+ fintuned tinylaaama on kalinga data to make it good virtual kalinga oritned chatgpt
+ 

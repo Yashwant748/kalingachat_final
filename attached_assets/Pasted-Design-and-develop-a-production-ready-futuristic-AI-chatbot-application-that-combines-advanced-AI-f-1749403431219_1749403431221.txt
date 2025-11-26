@@ -13,7 +13,7 @@ Implement:
 
 Error handling (API unreachable, timeout, model errors)
 
-Persistent chat history storage (file-based or SQLite)
+Persistent chat history storage (file-based or SQLite) 
 
 CORS handling for secure frontend/backend comms
 
