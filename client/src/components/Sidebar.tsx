@@ -60,8 +60,8 @@ export default function Sidebar({
                 <h2 className="font-orbitron font-bold text-xl tracking-tight text-foreground group-hover:text-primary transition-colors">
                   KalingaAI
                 </h2>
-                <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">
-                  Assistant
+                <p className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">
+                  Academic Jarvis v6
                 </p>
               </div>
             </div>

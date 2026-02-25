@@ -431,7 +431,8 @@ export default function ChatInterface() {
                   const params = JSON.stringify({
                     filename: data.filename,
                     chunks: data.chunks,
-                    type: data.type
+                    type: data.type,
+                    fileId: data.fileId
                   });
                   // 1. Send the Attachment Card Message (Always)
                   handleSendMessage(`[RAG_ATTACHMENT]:${params}`);
