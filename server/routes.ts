@@ -316,8 +316,27 @@ router.get("/auth/me", (req, res) => res.json({ user: req.user || null }));
 router.post("/rag/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   try {
+    const isExcel = req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls') || req.file.mimetype.includes('excel') || req.file.mimetype.includes('spreadsheet');
+
+    if (isExcel) {
+      // Stage Excel file for Academic Jarvis Analyzers
+      const fileId = "rng_" + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+      const tempPath = path.join(os.tmpdir(), `kalinga_academic_${fileId}.xlsx`);
+      fs.writeFileSync(tempPath, req.file.buffer);
+      console.log(`[Excel Staged] Saved for analysis: ${tempPath}`);
+
+      return res.json({
+        message: "Excel file staged for analysis",
+        filename: req.file.originalname,
+        fileType: "excel",
+        fileId: fileId,
+        chunkCount: 0
+      });
+    }
+
+    // Standard RAG PDF/TXT Processing
     const chunks = await ragService.addDocument(req.file.buffer, req.file.originalname, req.file.mimetype);
-    res.json({ message: `Processed ${chunks} chunks`, filename: req.file.originalname });
+    res.json({ message: `Processed ${chunks} chunks`, filename: req.file.originalname, fileType: "document" });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

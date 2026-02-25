@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 
 interface RAGUploadDialogProps {
     children?: React.ReactNode;
-    onUploadSuccess?: (data: { filename: string; chunks: number; type: string; autoReply: boolean }) => void;
+    onUploadSuccess?: (data: { filename: string; chunks: number; type: string; autoReply: boolean; fileId?: string }) => void;
 }
 
 export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUploadDialogProps) {
@@ -74,7 +74,8 @@ export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUpload
                     filename: data.filename || file.name,
                     chunks: data.chunkCount !== undefined ? data.chunkCount : 0,
                     type: data.fileType || file.type,
-                    autoReply: autoReply
+                    autoReply: autoReply,
+                    fileId: data.fileId
                 });
             }
 
@@ -118,7 +119,7 @@ export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUpload
                         <Input
                             id="file"
                             type="file"
-                            accept=".txt,.pdf"
+                            accept=".txt,.pdf,.xlsx,.xls"
                             onChange={handleFileChange}
                             disabled={uploading}
                         />
