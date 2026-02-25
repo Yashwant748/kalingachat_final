@@ -2,15 +2,20 @@ import { exec } from "child_process";
 import { storage } from "../storage";
 import { ragService } from "../rag";
 import { liveFactsService } from "./liveFacts";
+import { pdfService } from "./pdfService";
+import { excelAnalyzerService } from "./excelAnalyzerService";
 import * as ollama from "./ollamaService";
 import { detectLanguageRequest } from "./languageService";
 import { buildMultilingualPrompt } from "./promptBuilder";
 import { cleanResponse } from "./responseCleaner";
 import { generateImage } from "./imageService";
 
+const OLLAMA_API_URL = "http://127.0.0.1:11434";
+
 import * as xlsx from "xlsx";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
 export interface ChatResponseChunk {
     type: "meta" | "content" | "error" | "done";
@@ -347,6 +352,77 @@ export class ChatService {
 
             const { language } = detectLanguageRequest(content);
             const isHindi = language === "hindi" || activePrompt.includes("bana") || activePrompt.includes("karo") || activePrompt.includes("do");
+
+            // --- FEATURE 5: ACADEMIC JARVIS EXCEL ANALYZERS ---
+            const attendanceAnalyzeKeywords = ["analyze attendance", "check attendance", "attendance report", "low attendance", "attendance list"];
+            const marksAnalyzeKeywords = ["analyze marks", "check marks", "marksheet report", "analyze student marks", "analyze result"];
+            const excelErrorKeywords = ["check excel errors", "analyze excel problems", "find problems in excel", "find errors in excel", "check excel sheet"];
+
+            const isAttendanceAnalysis = attendanceAnalyzeKeywords.some(k => lowerPrompt.includes(k));
+            const isMarksAnalysis = marksAnalyzeKeywords.some(k => lowerPrompt.includes(k));
+            const isExcelErrorAnalysis = excelErrorKeywords.some(k => lowerPrompt.includes(k));
+
+            if (isAttendanceAnalysis || isMarksAnalysis || isExcelErrorAnalysis) {
+                // Find the most recent staged Excel file in this conversation by reverse searching messages
+                let targetFileId: string | null = null;
+                try {
+                    const history = await storage.getMessages(conversationId);
+                    // Search backwards for a RAG_ATTACHMENT containing an excel fileId
+                    for (let i = history.length - 1; i >= 0; i--) {
+                        const msg = history[i].content;
+                        if (msg.startsWith("[RAG_ATTACHMENT]:")) {
+                            try {
+                                const data = JSON.parse(msg.replace("[RAG_ATTACHMENT]:", ""));
+                                if (data.fileId && data.fileId.startsWith("rng_")) {
+                                    targetFileId = data.fileId;
+                                    break;
+                                }
+                            } catch (e) { }
+                        }
+                    }
+                } catch (e) { }
+
+                if (!targetFileId) {
+                    const errorMsg = "Please upload an Excel file (.xlsx or .xls) first using the '+' button before asking me to analyze it.";
+                    onChunk(errorMsg);
+                    await storage.updateMessageContent(aiMsg.id, errorMsg);
+                    await this.updateTitleIfNeeded(conversationId, content);
+                    return;
+                }
+
+                // File found, read it
+                const fs = require('fs');
+                const path = require('path');
+                const os = require('os');
+                const tempPath = path.join(os.tmpdir(), `kalinga_academic_${targetFileId}.xlsx`);
+
+                if (!fs.existsSync(tempPath)) {
+                    const expiredMsg = "The uploaded Excel file has expired or was removed. Please upload it again.";
+                    onChunk(expiredMsg);
+                    await storage.updateMessageContent(aiMsg.id, expiredMsg);
+                    await this.updateTitleIfNeeded(conversationId, content);
+                    return;
+                }
+
+                const buffer = fs.readFileSync(tempPath);
+                let report = "";
+
+                if (isAttendanceAnalysis) {
+                    report = excelAnalyzerService.analyzeAttendance(buffer).text;
+                } else if (isMarksAnalysis) {
+                    report = excelAnalyzerService.analyzeMarks(buffer).text;
+                } else if (isExcelErrorAnalysis) {
+                    report = excelAnalyzerService.detectExcelErrors(buffer).text;
+                }
+
+                // Cleanup the file after analysis
+                try { fs.unlinkSync(tempPath); } catch (e) { }
+
+                onChunk(report);
+                await storage.updateMessageContent(aiMsg.id, report);
+                await this.updateTitleIfNeeded(conversationId, content);
+                return;
+            }
 
             // 4.5.5 Intercept PDF to Excel Tool (Smart Assistant Mode)
             const isPdfRequest = lowerPrompt.includes("pdf") && (lowerPrompt.includes("excel") || lowerPrompt.includes("extract") || lowerPrompt.includes("convert") || lowerPrompt.includes("table") || lowerPrompt.includes("make") || lowerPrompt.includes("bana") || lowerPrompt.includes("karo") || lowerPrompt.includes("badal") || lowerPrompt.includes("do"));
