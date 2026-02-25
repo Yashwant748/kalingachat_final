@@ -3,6 +3,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/useAuth";
 import { formatDistanceToNow } from "date-fns";
 import type { Conversation } from "@shared/schema";
+import RAGUploadDialog from "./RAGUploadDialog";
+import { Link, useLocation } from "react-router-dom";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -27,6 +29,7 @@ export default function Sidebar({
 }: SidebarProps) {
 
   const { logout } = useAuth();
+  const location = useLocation();
 
   return (
     <>
@@ -83,6 +86,27 @@ export default function Sidebar({
           </Button>
         </div>
 
+        {/* AI Tools Section */}
+        <div className="px-6 py-4 border-b border-white/10">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            AI Tools
+          </h3>
+          <Link
+            to="/tools/pdf-to-excel"
+            className={`
+              flex items-center w-full px-3 py-2 text-sm font-medium rounded-xl transition-all
+              ${location.pathname === '/tools/pdf-to-excel'
+                ? 'bg-green-500/10 text-green-500 shadow-sm'
+                : 'text-foreground hover:bg-white/5 hover:text-green-400'
+              }
+            `}
+            onClick={() => { if (window.innerWidth < 1024) onToggle(); }}
+          >
+            <i className="fas fa-file-excel mr-3 opacity-70" />
+            PDF to Excel
+          </Link>
+        </div>
+
         {/* Chat History */}
         <div className="flex-1 overflow-hidden flex flex-col">
           <div className="px-6 py-4">
@@ -136,6 +160,7 @@ export default function Sidebar({
 
         {/* Footer */}
         <div className="p-4 border-t border-white/10 space-y-2 bg-black/5">
+          <RAGUploadDialog />
           <Button
             onClick={logout}
             variant="ghost"

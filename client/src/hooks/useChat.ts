@@ -55,15 +55,42 @@ export function useChat() {
       const res = await chatApi.createConversation(data);
       return res.data;
     },
+    onMutate: async (newData) => {
+      await queryClient.cancelQueries({ queryKey: ["conversations"] });
+      const previousConversations = queryClient.getQueryData(["conversations"]);
+
+      // Optimistic update
+      queryClient.setQueryData(["conversations"], (old: Conversation[] | undefined) => {
+        const tempId = Date.now(); // Temp ID
+        const newConv: Conversation = {
+          id: tempId,
+          title: newData.title,
+          userId: 1, // Placeholder
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        return [newConv, ...(old || [])];
+      });
+      return { previousConversations };
+    },
     onSuccess: (newConversation) => {
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      // Replace temp with real
+      queryClient.setQueryData(["conversations"], (old: Conversation[] | undefined) => {
+        if (!old) return [newConversation];
+        // Remove any optimistics (huge IDs) and add real one
+        return [newConversation, ...old.filter(c => c.id < 9999999999)];
+      });
       setCurrentConversationId(newConversation.id);
+      setIsTyping(false);
       toast({ title: "New chat created" });
     },
+    onError: (err, newTodo, context: any) => {
+      queryClient.setQueryData(["conversations"], context.previousConversations);
+    }
   });
 
   const sendMessageMutation = useMutation({
-    mutationFn: async (variables: { conversationId: number; content: string }) => {
+    mutationFn: async (variables: { conversationId: number; content: string; model?: string }) => {
       // 1. Optimistically update UI or just let the stream handle it
       // We'll use a direct stream handler here
       let aiMessageId: number | null = null;
@@ -105,7 +132,7 @@ export function useChat() {
           };
           return newMessages;
         });
-      });
+      }, variables.model);
       return { success: true };
     },
     onMutate: () => setIsTyping(true),
@@ -114,17 +141,44 @@ export function useChat() {
       queryClient.invalidateQueries({ queryKey: ["messages", currentConversationId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
-    onError: () => setIsTyping(false),
+    onError: (error: any) => {
+      setIsTyping(false);
+      console.error("SendMessage Error:", error);
+      toast({
+        title: "Message failed",
+        description: error.message || "Failed to send message. Please check your connection.",
+        variant: "destructive"
+      });
+    },
   });
 
   const deleteConversationMutation = useMutation({
     mutationFn: chatApi.deleteConversation,
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["conversations"] });
+      const previousConversations = queryClient.getQueryData(["conversations"]);
+
+      // Optimistic delete
+      queryClient.setQueryData(["conversations"], (old: Conversation[] | undefined) => {
+        return old?.filter(c => c.id !== id) || [];
+      });
+
+      // If deleting current, switch to another
+      if (currentConversationId === id) {
+        const remaining = (previousConversations as Conversation[])?.filter(c => c.id !== id) || [];
+        if (remaining.length > 0) setCurrentConversationId(remaining[0].id);
+        else setCurrentConversationId(null);
+      }
+
+      return { previousConversations };
+    },
     onSuccess: () => {
+      // Already updated optimistically. Just invalidate to sync.
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      setCurrentConversationId(null);
       toast({ title: "Conversation deleted" });
     },
-    onError: (err: any) => {
+    onError: (err, id, context: any) => {
+      queryClient.setQueryData(["conversations"], context.previousConversations);
       toast({ title: "Error deleting conversation", description: err.message, variant: "destructive" });
     }
   });
@@ -141,6 +195,12 @@ export function useChat() {
     }
   }, [isAuthenticated, conversations, conversationsLoading, currentConversationId, createConversationMutation]);
 
+  // Reset typing state when switching conversations
+  useEffect(() => {
+    setIsTyping(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [currentConversationId]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
@@ -151,9 +211,9 @@ export function useChat() {
     createConversationMutation.mutate({ title: `New Chat` });
   };
 
-  const sendMessage = (content: string) => {
+  const sendMessage = (content: string, model?: string) => {
     if (!currentConversationId) return;
-    sendMessageMutation.mutate({ conversationId: currentConversationId, content });
+    sendMessageMutation.mutate({ conversationId: currentConversationId, content, model });
   };
 
   // --- THIS IS THE FIX ---

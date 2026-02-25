@@ -78,6 +78,14 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.5" },
         },
+        "ping-delay-200": {
+          "0%": { transform: "scale(1)", opacity: "1" },
+          "75%, 100%": { transform: "scale(1.5)", opacity: "0" },
+        },
+        "pulse-delay-100": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.5" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -85,6 +93,7 @@ export default {
         "fade-in": "fade-in 0.3s ease-out forwards",
         "slide-up": "slide-up 0.4s ease-out forwards",
         "pulse-slow": "pulse-slow 3s infinite ease-in-out",
+        "ping-delay-200": "ping-delay-200 1s infinite ease-out 0.2s",
       },
     },
   },

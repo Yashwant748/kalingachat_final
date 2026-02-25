@@ -25,16 +25,16 @@ export const chatApi = {
   getMessages: (cid: number) =>
     api.get(`/api/conversations/${cid}/messages`),
 
-  sendMessage: (cid: number, content: string) =>
-    api.post(`/api/conversations/${cid}/messages`, { content }),
+  sendMessage: (cid: number, content: string, model?: string) =>
+    api.post(`/api/conversations/${cid}/messages`, { content, model }),
 
-  sendMessageStream: async (cid: number, content: string, onChunk: (chunk: string) => void) => {
+  sendMessageStream: async (cid: number, content: string, onChunk: (chunk: string) => void, model?: string) => {
     const response = await fetch(`/api/conversations/${cid}/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, model }),
     });
 
     if (!response.ok) {

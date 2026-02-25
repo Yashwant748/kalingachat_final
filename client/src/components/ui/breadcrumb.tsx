@@ -48,6 +48,7 @@ const BreadcrumbLink = React.forwardRef<
   const Comp = asChild ? Slot : "a"
 
   return (
+    // @ts-ignore
     <Comp
       ref={ref}
       className={cn("transition-colors hover:text-foreground", className)}

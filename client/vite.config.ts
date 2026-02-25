@@ -15,11 +15,24 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // Exposes the server to the LAN (0.0.0.0) automatically
     proxy: {
       "/api": {
         target: "http://localhost:5000",
         changeOrigin: true,
         secure: false,
+      },
+      "/generated-images": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+      "/generated-excel": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+      "/generated-files": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
       },
     },
   },

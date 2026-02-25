@@ -8,6 +8,7 @@ import ChatInterface from "@/components/ChatInterface";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import PdfToExcel from "@/pages/Tools/PdfToExcel";
 
 import { AuthProvider } from "@/hooks/AuthProvider";
 import { useAuth } from "@/hooks/useAuth";
@@ -50,6 +51,7 @@ export default function App() {
 
             <Routes>
               <Route path="/" element={<ProtectedRoute><ChatInterface /></ProtectedRoute>} />
+              <Route path="/tools/pdf-to-excel" element={<ProtectedRoute><PdfToExcel /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="*" element={<NotFound />} />

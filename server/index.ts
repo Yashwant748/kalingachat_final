@@ -39,6 +39,11 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// --- Static Image Serving ---
+app.use("/generated-images", express.static(path.join(__dirname, "..", "generated-images")));
+app.use("/generated-excel", express.static(path.join(process.cwd(), "server", "generated-excel")));
+app.use("/generated-files", express.static(path.join(process.cwd(), "public", "generated-files")));
+
 // --- API Routes ---
 app.use("/api", routes);
 
@@ -48,8 +53,26 @@ app.use("/api", routes);
    So we disable dist serving to avoid ENOENT errors.
 */
 
+import os from "os";
+
 // --- Start Server ---
 const port = 5000;
-server.listen(port, () => {
-  console.log(`Backend running fine on port ${port}`);
+server.listen(port, "0.0.0.0", () => {
+  console.log(`\n🚀 Backend running fine on port ${port}`);
+
+  // Find LAN IP for Mobile Access Display
+  const nets = os.networkInterfaces();
+  let lanIp = "localhost";
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        lanIp = net.address;
+        break;
+      }
+    }
+  }
+
+  console.log(`\n📱 MOBILE ACCESS ENABLED`);
+  console.log(`To open KalingaAI on your phone, connect to the exact same Wi-Fi network and open:`);
+  console.log(`http://${lanIp}:5173\n`);
 });

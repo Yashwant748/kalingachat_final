@@ -1,0 +1,4 @@
+This is a confidential test document for KalingaAI RAG verification.
+The project code is KalingaChat-2025.
+The secret number is 4321.
+Do not share this with unauthorized users.
