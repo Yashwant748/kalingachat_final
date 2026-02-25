@@ -13,3 +13,10 @@ test.xlsx
 *.tmp
 .vscode/
 .DS_Store
+
+# KalingaChat Specific Ignores
+server/rag_store.json
+test_*.xlsx
+*.cjs
+server/test_*.ts
+server/create_test_excels.ts
