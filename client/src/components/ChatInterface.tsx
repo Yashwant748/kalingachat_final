@@ -507,18 +507,18 @@ export default function ChatInterface() {
               {/* Send Button */}
               <Button
                 onClick={() => handleSendMessage()}
-                disabled={chatInitializing || !inputMessage.trim()}
+                disabled={chatInitializing}
                 className={`
-                    mb-1 mr-1 h-10 w-10 rounded-xl transition-all duration-300 shadow-md
-                    ${inputMessage.trim()
+                    mb-1 mr-1 h-10 w-10 rounded-xl transition-all duration-300 shadow-md flex items-center justify-center
+                    ${inputMessage.trim() || isSending || isTyping
                     ? 'bg-primary hover:bg-primary/90 text-white translate-y-0 opacity-100'
                     : 'bg-muted text-muted-foreground translate-y-0 opacity-50'
                   }
                   `}
-                title={isSending || isTyping ? "Send anyway (AI is still typing)" : "Send Message"}
+                title={isSending || isTyping ? "AI is responding" : "Send Message"}
               >
                 {isSending || isTyping ? (
-                  <span className="animate-spin text-primary-foreground/70" title="AI is responding..."><i className="fas fa-spinner" /></span>
+                  <i className="fas fa-spinner animate-spin text-white"></i>
                 ) : (
                   <i className="fas fa-arrow-up" />
                 )}

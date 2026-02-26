@@ -354,13 +354,9 @@ export class ChatService {
             const isHindi = language === "hindi" || activePrompt.includes("bana") || activePrompt.includes("karo") || activePrompt.includes("do");
 
             // --- FEATURE 5: ACADEMIC JARVIS EXCEL ANALYZERS ---
-            const attendanceAnalyzeKeywords = ["analyze attendance", "check attendance", "attendance report", "low attendance", "attendance list"];
-            const marksAnalyzeKeywords = ["analyze marks", "check marks", "marksheet report", "analyze student marks", "analyze result"];
-            const excelErrorKeywords = ["check excel errors", "analyze excel problems", "find problems in excel", "find errors in excel", "check excel sheet"];
-
-            const isAttendanceAnalysis = attendanceAnalyzeKeywords.some(k => lowerPrompt.includes(k));
-            const isMarksAnalysis = marksAnalyzeKeywords.some(k => lowerPrompt.includes(k));
-            const isExcelErrorAnalysis = excelErrorKeywords.some(k => lowerPrompt.includes(k));
+            const isAttendanceAnalysis = lowerPrompt.startsWith("/analyze attendance");
+            const isMarksAnalysis = lowerPrompt.startsWith("/analyze marks");
+            const isExcelErrorAnalysis = lowerPrompt.startsWith("/analyze errors");
 
             if (isAttendanceAnalysis || isMarksAnalysis || isExcelErrorAnalysis) {
                 // Find the most recent staged Excel file in this conversation by reverse searching messages
@@ -437,10 +433,7 @@ export class ChatService {
             }
 
             // 4.6 Intercept Teacher Attendance Sheet Tool (Smart Assistant Mode)
-            const attendanceKeywords = ["create", "generate", "update", "sheet", "make", "for", "list", "build", "bana", "karo", "do", "banao", "bana do"];
-            const isMarksheetRequest = lowerPrompt.includes("marks") || lowerPrompt.includes("grade") || lowerPrompt.includes("result");
-
-            if (activePrompt.includes("attendance") && attendanceKeywords.some(k => activePrompt.includes(k)) && !isMarksheetRequest) {
+            if (activePrompt.startsWith("/attendance")) {
                 const countMatch = lowerPrompt.match(/(\d+)\s*student/) || previousMessageContent.match(/(\d+)\s*student/) || activePrompt.match(/(\d+)/);
                 const count = countMatch ? parseInt(countMatch[1]) : 50;
 
@@ -480,7 +473,7 @@ export class ChatService {
             }
 
             // 4.7 Intercept Student List Excel Tool (Smart Assistant Mode)
-            if (activePrompt.includes("student list") || (activePrompt.includes("excel") && activePrompt.includes("student"))) {
+            if (activePrompt.startsWith("/studentlist")) {
                 const match = lowerPrompt.match(/(\d+)/) || previousMessageContent.match(/(\d+)/);
                 const count = match ? parseInt(match[1]) : 100;
 
@@ -506,7 +499,7 @@ export class ChatService {
             }
 
             // 4.8 Intercept Marks Sheet Excel Tool (Smart Assistant Mode)
-            if (activePrompt.includes("marks") || activePrompt.includes("grade") || activePrompt.includes("result sheet")) {
+            if (activePrompt.startsWith("/marks")) {
                 const match = lowerPrompt.match(/(\d+)/) || previousMessageContent.match(/(\d+)/);
                 const count = match ? parseInt(match[1]) : 60;
 
@@ -536,8 +529,7 @@ export class ChatService {
             let academicPrompt = "";
             let academicMaxTokens = 80;
 
-            const resumeKeywords = ["make", "create", "build", "generate", "for", "write", "draft", "bana", "do", "banao", "karo"];
-            const isResumeRequest = (lowerPrompt.includes("resume") || lowerPrompt.includes("cv")) && resumeKeywords.some(k => lowerPrompt.includes(k));
+            const isResumeRequest = activePrompt.startsWith("/resume");
 
             if (isResumeRequest) {
                 const courses = ["bca", "mca", "btech", "b.tech", "mtech", "m.tech", "bba", "mba", "bsc", "msc", "b.com", "m.com"];
@@ -583,17 +575,17 @@ export class ChatService {
                 await storage.updateMessageContent(aiMsg.id, finalResume);
                 await this.updateTitleIfNeeded(conversationId, content);
                 return;
-            } else if (lowerPrompt.includes("cover letter")) {
+            } else if (lowerPrompt.startsWith("/coverletter")) {
                 isAcademicTool = true;
-                academicPrompt = "Generate a professional cover letter. Include: Applicant introduction, Skills, Reason for applying, Strengths, Closing statement. Make it realistic and professional. Limit to 200–300 words.";
+                academicPrompt = `Generate a professional cover letter based on: '${content.replace(/^\/coverletter/i, '').trim()}'. Include: Applicant introduction, Skills, Reason for applying, Strengths, Closing statement. Make it realistic and professional. Limit to 200–300 words.`;
                 academicMaxTokens = 500;
-            } else if (lowerPrompt.includes("apa citation")) {
+            } else if (lowerPrompt.startsWith("/apa")) {
                 isAcademicTool = true;
-                academicPrompt = `Generate APA citation for: '${content}'. RULES: NEVER invent fake details. Use ONLY the provided fields (Author, Title, Year). Do NOT guess or add extra fields like editors, pages, or journals. If exact details are unknown, use this safe generic format: Author. (Year). Title. Publisher Unknown. Return ONLY the citation.`;
+                academicPrompt = `Generate APA citation for: '${content.replace(/^\/apa/i, '').trim()}'. RULES: NEVER invent fake details. Use ONLY the provided fields (Author, Title, Year). Do NOT guess or add extra fields like editors, pages, or journals. If exact details are unknown, use this safe generic format: Author. (Year). Title. Publisher Unknown. Return ONLY the citation.`;
                 academicMaxTokens = 150;
-            } else if (lowerPrompt.includes("ieee citation")) {
+            } else if (lowerPrompt.startsWith("/ieee")) {
                 isAcademicTool = true;
-                academicPrompt = `Generate IEEE citation for: '${content}'. RULES: NEVER invent fake details. Use ONLY the provided fields (Author, Title, Year). Do NOT guess or add extra fields like editors, pages, or journals. If exact details are unknown, use this safe generic format: [1] Author Unknown, "Title," Year. Return ONLY the citation.`;
+                academicPrompt = `Generate IEEE citation for: '${content.replace(/^\/ieee/i, '').trim()}'. RULES: NEVER invent fake details. Use ONLY the provided fields (Author, Title, Year). Do NOT guess or add extra fields like editors, pages, or journals. If exact details are unknown, use this safe generic format: [1] Author Unknown, "Title," Year. Return ONLY the citation.`;
                 academicMaxTokens = 150;
             }
 
@@ -718,8 +710,9 @@ export class ChatService {
 
         } catch (error: any) {
             console.error("ChatService Error:", error);
-            onChunk("\n[System Error: " + error.message + "]");
-            await storage.updateMessageContent(aiMsg.id, "[Error generating response]");
+            const fallbackMsg = "\n\n**[System Error]** AI temporarily unavailable. Please try again.";
+            onChunk(fallbackMsg);
+            await storage.updateMessageContent(aiMsg.id, fallbackMsg);
         }
     }
 
