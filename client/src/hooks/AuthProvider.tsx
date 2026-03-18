@@ -70,7 +70,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       queryClient.setQueryData(["/api/auth/me"], { user });
       navigate("/");
-      toast({ title: "System Online", description: "Welcome to KalingaAI" });
     },
     onError: (error: any) => {
       toast({ title: "Login Error", description: "System is offline.", variant: "destructive" });

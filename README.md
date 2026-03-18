@@ -34,6 +34,6 @@ Open:
 http://localhost:5173
 
 ## 5. Author
-Developed by Yashwant Pan  
+Developed by Yashwant Pan and Ishika sharon singh
 BCA AIML  
 Kalinga University

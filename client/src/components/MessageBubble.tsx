@@ -9,28 +9,38 @@ import { useState, useEffect } from "react";
 interface MessageBubbleProps {
   message: Message;
   isLast?: boolean;
+  previousMessage?: Message;
 }
 
-function JarvisLoadingAnimation() {
-  const [frame, setFrame] = useState(0);
-  const phrases = ["Initializing Jarvis...", "Processing Request...", "Generating Output..."];
+// Removed JarvisLoadingAnimation as user requested dots only
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setFrame(prev => (prev + 1) % phrases.length);
-    }, 800); // Cycles exactly under 1 second per user rules
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <span className="ml-2 font-medium non-italic text-primary/80 transition-opacity duration-300">
-      {phrases[frame]}
-    </span>
-  );
-}
-
-export default function MessageBubble({ message, isLast }: MessageBubbleProps) {
+export default function MessageBubble({ message, isLast, previousMessage }: MessageBubbleProps) {
   const isUser = message.sender === 'user';
+
+  // Smart Model Auto Display & RAG Detection
+  let autoModelBadge = null;
+  let isRAG = false;
+
+  if (!isUser && previousMessage && previousMessage.sender === 'user') {
+    const userText = previousMessage.content || "";
+    const isCoding = /\b(def\s|class\s|function\s|let\s|const\s|import\s|=>|\{|\})/.test(userText) || userText.toLowerCase().includes("code") || userText.toLowerCase().includes("python");
+    const complexKeywords = ["explain", "analyze", "compare", "translate", "why", "how", "describe", "elaborate"];
+    const isComplex = complexKeywords.some(k => userText.toLowerCase().includes(k)) || userText.length > 200;
+
+    if (isCoding) autoModelBadge = "Qwen";
+    else if (isComplex || /[\u0900-\u097F]/.test(userText)) autoModelBadge = "Phi3";
+    else autoModelBadge = "TinyLlama";
+  }
+
+  // Override with actual model used if available from backend
+  const explicitModel = (message as any).usedModel;
+  if (explicitModel) {
+    autoModelBadge = explicitModel.replace(/:.*$/, ''); // Just the base name for tidiness
+  }
+
+  if (!isUser && (message.content.includes('[Source:') || previousMessage?.content?.includes('[RAG_ATTACHMENT]'))) {
+    isRAG = true;
+  }
 
   const { displayedContent, isStreaming } = useMessageStream({
     content: message.content,
@@ -41,6 +51,7 @@ export default function MessageBubble({ message, isLast }: MessageBubbleProps) {
   });
 
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [showTrace, setShowTrace] = useState(false);
 
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -62,6 +73,20 @@ export default function MessageBubble({ message, isLast }: MessageBubbleProps) {
 
         {/* Message Content */}
         <div className="flex flex-col min-w-0">
+          {!isUser && (autoModelBadge || isRAG) && (
+            <div className="flex items-center space-x-2 mb-1.5 ml-1 opacity-90">
+              {autoModelBadge && (
+                <span className="text-[9px] font-mono bg-white/5 text-muted-foreground px-1.5 py-0.5 rounded border border-white/10">
+                  Model: {autoModelBadge} {explicitModel ? "(User Selected)" : "(Auto Selected)"}
+                </span>
+              )}
+              {isRAG && (
+                <span className="text-[9px] font-mono bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">
+                  <i className="fas fa-database mr-1" /> Knowledge Base Activated
+                </span>
+              )}
+            </div>
+          )}
           <div className={`
             relative px-5 py-3.5 rounded-2xl shadow-sm backdrop-blur-sm border transition-all duration-300
             ${isUser
@@ -70,7 +95,67 @@ export default function MessageBubble({ message, isLast }: MessageBubbleProps) {
             }
           `}>
             <div className="prose prose-sm max-w-none dark:prose-invert leading-relaxed font-medium overflow-hidden">
-              {isUser && displayedContent.startsWith('[RAG_ATTACHMENT]:') ? (
+              {isUser && displayedContent.startsWith('[IMAGE_ATTACHMENT]:') ? (
+                (() => {
+                  try {
+                    const firstLine = displayedContent.split('\n')[0];
+                    const data = JSON.parse(firstLine.replace('[IMAGE_ATTACHMENT]:', ''));
+
+                    const backendURL = window.location.hostname === "localhost"
+                      ? "http://localhost:5000"
+                      : window.location.origin;
+
+                    const finalImgUrl = data.url.startsWith('http')
+                      ? data.url
+                      : `${backendURL}${data.url.startsWith('/') ? '' : '/'}${data.url}`;
+
+                    return (
+                      <div className="flex flex-col space-y-3 w-full min-w-[280px] sm:min-w-[320px] max-w-sm">
+                        <div className="group relative rounded-2xl overflow-hidden border border-white/10 shadow-lg bg-black/20">
+                          <div className="flex items-center px-3 py-2 bg-black/40 backdrop-blur-md border-b border-white/5">
+                            <i className="fas fa-image text-muted-foreground text-[10px] mr-2"></i>
+                            <p className="font-medium text-[11px] text-muted-foreground truncate">{data.filename}</p>
+                          </div>
+                          <a href={finalImgUrl} target="_blank" rel="noopener noreferrer" className="block relative cursor-pointer">
+                            <img
+                              src={finalImgUrl}
+                              alt={data.filename}
+                              className="max-h-72 object-contain w-full hover:scale-105 transition-transform duration-700 ease-out"
+                            />
+                            <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
+                              <i className="fas fa-external-link-alt text-white drop-shadow-lg text-lg"></i>
+                            </div>
+                          </a>
+                        </div>
+
+                        {data.caption ? (
+                          data.caption === "Analyzing image..." ? (
+                            <div className="flex items-center space-x-3 p-3 bg-white/5 border border-white/10 rounded-xl backdrop-blur-sm shadow-inner">
+                              <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+                                <i className="fas fa-circle-notch fa-spin text-primary text-sm"></i>
+                              </div>
+                              <span className="text-xs text-muted-foreground font-medium animate-pulse">{data.caption}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-start space-x-3 p-3.5 bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/20 rounded-xl shadow-inner backdrop-blur-sm relative overflow-hidden">
+                              <div className="absolute top-0 right-0 w-16 h-16 bg-primary/10 rounded-bl-full -mr-4 -mt-4 blur-xl"></div>
+                              <div className="w-6 h-6 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center border border-primary/30 mt-0.5 z-10">
+                                <i className="fas fa-eye text-primary text-[10px]"></i>
+                              </div>
+                              <div className="flex-1 z-10 w-full min-w-0">
+                                <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-1 opacity-80">Vision Analysis</p>
+                                <p className="text-xs text-foreground/90 leading-relaxed font-medium">{data.caption}</p>
+                              </div>
+                            </div>
+                          )
+                        ) : null}
+                      </div>
+                    );
+                  } catch (e) {
+                    return <div className="text-red-400 text-xs">Error parsing image attachment</div>;
+                  }
+                })()
+              ) : isUser && displayedContent.startsWith('[RAG_ATTACHMENT]:') ? (
                 (() => {
                   try {
                     const data = JSON.parse(displayedContent.replace('[RAG_ATTACHMENT]:', ''));
@@ -105,7 +190,6 @@ export default function MessageBubble({ message, isLast }: MessageBubbleProps) {
                       <div className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
                       <div className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
                       <div className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
-                      <JarvisLoadingAnimation />
                     </div>
                   ) : (
                     <ReactMarkdown
@@ -171,6 +255,28 @@ export default function MessageBubble({ message, isLast }: MessageBubbleProps) {
                 </>
               )}
             </div>
+
+            {/* NEW EXECUTION TRACE BLOCK FOR AI MESSAGES */}
+            {!isUser && !isStreaming && displayedContent && (
+              <div className="mt-4 pt-3 border-t border-white/5">
+                <button
+                  onClick={() => setShowTrace(!showTrace)}
+                  className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground hover:text-primary transition-colors focus:outline-none"
+                >
+                  <i className={`fas fa-chevron-${showTrace ? 'up' : 'down'}`} />
+                  ℹ Execution Trace
+                </button>
+                {showTrace && (
+                  <div className="mt-3 p-3 rounded-xl bg-black/20 border border-white/5 text-[11px] font-mono text-muted-foreground/90 space-y-1.5 animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="flex justify-between items-center"><span className="opacity-60">Language Detected:</span> <span className="text-white/90">{(displayedContent?.match(/[\u0900-\u097F]/) || displayedContent?.toLowerCase().includes("kya") || displayedContent?.toLowerCase().includes("hai")) ? "Hindi (Devanagari / Romanized)" : "English / Default"}</span></div>
+                    <div className="flex justify-between items-center"><span className="opacity-60">Router Strategy:</span> <span className="text-white/90">{explicitModel === "qwen2.5:3b" ? "Complex Multi-Lingual" : explicitModel === "tinyllama" ? "High-Speed Orchestration" : explicitModel === "phi3:mini" ? "Logical Deep-Dive" : "Dynamic Auto-Routing"}</span></div>
+                    <div className="flex justify-between items-center"><span className="opacity-60">Selected Model:</span> <span className="text-primary font-bold tracking-wider">{explicitModel?.replace(/:.*$/, '') || autoModelBadge || "Dynamic Target"}</span></div>
+                    <div className="flex justify-between items-center"><span className="opacity-60">Tools Fired:</span> <span className="text-white/90">{displayedContent?.includes("Excel Ready") || displayedContent?.includes("Attendance Sheet") ? "Excel Generator Engine" : displayedContent?.includes("Academic Tool") ? "Academic Assistant Mode" : "None"}</span></div>
+                    <div className="flex justify-between items-center"><span className="opacity-60">Generation Time:</span> <span className="text-white/90">{Math.max(0.6, (displayedContent?.length || 0) / 4 * 0.035).toFixed(2)}s (Estimated)</span></div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Timestamp */}

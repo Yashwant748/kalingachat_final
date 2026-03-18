@@ -101,21 +101,20 @@ function handleJarvisCommand(prompt: string): string | null {
     return null;
 }
 
-function generateAttendanceExcel(studentCount: number, course: string = "BCA", semester: string = "VI", totalClasses: number | string = ""): string | null {
+function generateAttendanceExcel(studentCount: number): string | null {
     try {
         const rows: any[][] = [];
         // Header
-        rows.push(["Roll No", "Enrollment No", "Student Name", "Course", "Semester", "Total Classes", "Attended", "Percentage"]);
+        rows.push(["Student Name", "Roll No", "1 Mar", "2 Mar", "3 Mar", "Total Present", "Attendance %"]);
 
         // Students
-        const courseCode = course.toUpperCase().replace(/\s+/g, '');
         for (let i = 1; i <= studentCount; i++) {
             const rollNo = 100 + i;
-            const enrollNo = `KU24${courseCode}${String(i).padStart(3, '0')}`;
             const rowIdx = i + 1;
-            const percentageCell = { t: 'n', f: `IF(F${rowIdx}>0, G${rowIdx}/F${rowIdx}, 0)`, z: "0.00%" };
+            const attendedCell = { t: 'n', f: `COUNTIF(C${rowIdx}:E${rowIdx}, "P")` };
+            const percentageCell = { t: 'n', f: `IF(F${rowIdx}>0, (F${rowIdx}/3)*100, 0)`, z: "0.00%" };
 
-            rows.push([rollNo, enrollNo, `Student ${i}`, course.toUpperCase(), semester.toUpperCase(), totalClasses, "", percentageCell]);
+            rows.push([`Student ${i}`, rollNo, "", "", "", attendedCell, percentageCell]);
         }
 
         const wb = xlsx.utils.book_new();
@@ -123,13 +122,12 @@ function generateAttendanceExcel(studentCount: number, course: string = "BCA", s
 
         // Styling: Column Widths
         ws['!cols'] = [
-            { wch: 10 }, // Roll No
-            { wch: 18 }, // Enrollment
             { wch: 25 }, // Name
-            { wch: 12 }, // Course
-            { wch: 10 }, // Semester
+            { wch: 10 }, // Roll No
+            { wch: 10 }, // 1 Mar
+            { wch: 10 }, // 2 Mar
+            { wch: 10 }, // 3 Mar
             { wch: 15 }, // Total
-            { wch: 15 }, // Attended
             { wch: 15 }  // Percentage
         ];
 
@@ -200,11 +198,14 @@ function generateMarksSheetExcel(studentCount: number): string | null {
     try {
         const rows: any[][] = [];
         // Header
-        rows.push(["Roll No", "Enrollment No", "Student Name", "Assignment 1", "Midterm", "Final Exam", "Total Marks", "Grade"]);
+        rows.push(["Name", "Subject1", "Subject2", "Subject3", "Total", "Percentage"]);
 
         // Students
         for (let i = 1; i <= studentCount; i++) {
-            rows.push([i, `KU/24/${1000 + i}`, `Student ${i}`, "", "", "", "", ""]);
+            const rowIdx = i + 1;
+            const totalCell = { t: 'n', f: `SUM(B${rowIdx}:D${rowIdx})` };
+            const percentageCell = { t: 'n', f: `E${rowIdx}/3`, z: "0.00%" };
+            rows.push([`Student ${i}`, "", "", "", totalCell, percentageCell]);
         }
 
         const wb = xlsx.utils.book_new();
@@ -212,14 +213,12 @@ function generateMarksSheetExcel(studentCount: number): string | null {
 
         // Styling: Column Widths
         ws['!cols'] = [
-            { wch: 10 }, // Roll No
-            { wch: 15 }, // Enrollment
             { wch: 25 }, // Name
-            { wch: 15 }, // Ass 1
-            { wch: 12 }, // Mid
-            { wch: 12 }, // Final
+            { wch: 15 }, // Sub1
+            { wch: 15 }, // Sub2
+            { wch: 15 }, // Sub3
             { wch: 15 }, // Total
-            { wch: 10 }  // Grade
+            { wch: 15 }  // Percentage
         ];
 
         xlsx.utils.book_append_sheet(wb, ws, "Marks");
@@ -240,20 +239,29 @@ function generateMarksSheetExcel(studentCount: number): string | null {
     }
 }
 
+function detectLanguage(text: string): "english" | "nonEnglish" {
+    const nonEnglishPattern = /[^\x00-\x7F]|bonjour|français|hindi|namaste|bonjour|merci|क्या|है/i;
+    return nonEnglishPattern.test(text) ? "nonEnglish" : "english";
+}
+
 export class ChatService {
     async processUserMessage(
         conversationId: number,
         content: string,
         requestedModel: string,
-        onChunk: (chunk: string) => void
+        onChunk: (chunk: string) => void,
+        signal?: AbortSignal
     ): Promise<void> {
-        const lowerContent = content.toLowerCase();
+        let processedContent = content;
+        let lowerContent = processedContent.toLowerCase();
 
         // 1. Save User Message
         const userMsg = await storage.createMessage({ conversationId, content, sender: "user" });
 
-        // Quick Return for RAG Uploads (Frontend handles this logic too, but safety check)
-        if (content.startsWith("[RAG_ATTACHMENT]:")) {
+        // Quick Return for RAG Uploads or Pure Image Uploads
+        if (content.startsWith("[RAG_ATTACHMENT]:") || (content.startsWith("[IMAGE_ATTACHMENT]:") && content.split('\n').length === 1)) {
+            // Send Metadata to Client so the UI updates
+            onChunk(JSON.stringify({ userMessage: userMsg }) + "\n");
             return;
         }
 
@@ -262,6 +270,73 @@ export class ChatService {
 
         // Send Metadata to Client (JSON chunk)
         onChunk(JSON.stringify({ userMessage: userMsg, aiMessageId: aiMsg.id }) + "\n");
+
+        // 2.2 On-Demand Image Captioning (Delayed Analysis)
+        let imageContext = "";
+        try {
+            const history = await storage.getMessages(conversationId);
+            // Search backwards for the most recent image attachment
+            for (let i = history.length - 1; i >= 0; i--) {
+                const msg = history[i];
+                if (msg.sender === "user" && msg.content.startsWith("[IMAGE_ATTACHMENT]:")) {
+                    const lines = msg.content.split('\n');
+                    const firstLine = lines[0];
+                    const data = JSON.parse(firstLine.replace("[IMAGE_ATTACHMENT]:", ""));
+
+                    if (data.fileId) {
+                        let finalCaption = data.caption;
+
+                        // If it hasn't been analyzed yet, do it now
+                        if (data.caption === "Analyzing image..." || !data.caption) {
+                            const path = require("path");
+                            const imagePath = path.join(process.cwd(), "public", "uploads", data.fileId);
+
+                            const { decodeImageCaption } = require("./imageDecoderService");
+                            finalCaption = await decodeImageCaption(imagePath);
+
+                            data.caption = finalCaption;
+                            lines[0] = `[IMAGE_ATTACHMENT]:${JSON.stringify(data)}`;
+
+                            const updatedContent = lines.join('\n');
+                            await storage.updateMessageContent(msg.id, updatedContent);
+
+                            // Stream update to UI so the old image bubble updates to show the caption
+                            onChunk(JSON.stringify({ updateUserMessage: { id: msg.id, content: updatedContent } }) + "\n");
+                        }
+
+                        // Save the extracted caption to inject
+                        imageContext = finalCaption;
+                        break; // Only process the most recent image
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Delayed Image Captioning Error:", e);
+        }
+
+        if (imageContext) {
+            // Inject the caption into the CURRENT prompt so the AI knows what the user is asking about
+            processedContent += `\n\n[System context: The user previously uploaded an image. Vision Analysis says: "${imageContext}"]`;
+            lowerContent = processedContent.toLowerCase();
+        }
+
+        // 2.5 Prompt Injection Protection
+        const forbiddenPhrases = [
+            "system instructions",
+            "hidden prompt",
+            "developer message",
+            "internal instructions",
+            "reveal prompt",
+            "show system prompt",
+            "internal prompt"
+        ];
+        if (forbiddenPhrases.some(phrase => lowerContent.includes(phrase))) {
+            const safeResponse = "I cannot disclose internal system instructions.";
+            onChunk(safeResponse);
+            await storage.updateMessageContent(aiMsg.id, safeResponse);
+            await this.updateTitleIfNeeded(conversationId, content);
+            return;
+        }
 
         try {
             // 3. Define Route
@@ -273,7 +348,7 @@ export class ChatService {
             // A. RAG CHECK
             const ragTriggers = ["document", "pdf", "file", "secret code", "uploaded", "context", "summarize"];
             if (ragTriggers.some(t => lowerContent.includes(t))) {
-                const results = await ragService.search(content, 3);
+                const results = await ragService.search(processedContent, 3);
                 if (results.length > 0) {
                     route = "RAG";
                     context = results.map(r => `[Source: ${r.chunk.source}]\n${r.chunk.text.replace(/SYSTEM_INSTRUCTION/g, "")}`).join("\n\n---\n\n");
@@ -281,9 +356,9 @@ export class ChatService {
             }
 
             // B. LIVE FACT CHECK (Only if not RAG)
-            if (route === "CHAT" && ollama.detectStrictFactual(content)) {
+            if (route === "CHAT" && ollama.detectStrictFactual(processedContent)) {
                 try {
-                    const fact = await liveFactsService.getFact(content);
+                    const fact = await liveFactsService.getFact(processedContent);
                     if (fact && fact.answer) {
                         route = "LIVE_FACT";
                         liveFactResult = fact;
@@ -299,12 +374,12 @@ export class ChatService {
             if (route === "LIVE_FACT" && liveFactResult?.answer) {
                 onChunk(liveFactResult.answer); // Stream the answer
                 await storage.updateMessageContent(aiMsg.id, liveFactResult.answer);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
             // --- FEATURE 4: SYSTEM DIAGNOSTIC COMMAND ---
-            if (content.toLowerCase().trim() === "system check") {
+            if (processedContent.toLowerCase().trim() === "system check") {
                 const diagnosticOutput = `**SYSTEM DIAGNOSTICS**
 
 ✅ **AI Model:** OK (TinyLlama Active)
@@ -316,25 +391,25 @@ export class ChatService {
 **STATUS: HEALTHY**`;
                 onChunk(diagnosticOutput);
                 await storage.updateMessageContent(aiMsg.id, diagnosticOutput);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
             // 4.5 Intercept Image Generation & Jarvis Commands
-            const lowerPrompt = content.toLowerCase();
+            const lowerPrompt = processedContent.toLowerCase();
             if (lowerPrompt.startsWith("generate image") || lowerPrompt.startsWith("create image") || lowerPrompt.startsWith("draw image") || lowerPrompt.startsWith("make picture") || lowerPrompt.startsWith("generate an image") || lowerPrompt.startsWith("create an image") || lowerPrompt.startsWith("draw ")) {
                 const imgNotice = "Image generation will be added in a future update.";
                 onChunk(imgNotice);
                 await storage.updateMessageContent(aiMsg.id, imgNotice);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
-            const jarvisResponse = handleJarvisCommand(content);
+            const jarvisResponse = handleJarvisCommand(processedContent);
             if (jarvisResponse) {
                 onChunk(jarvisResponse);
                 await storage.updateMessageContent(aiMsg.id, jarvisResponse);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
@@ -350,7 +425,7 @@ export class ChatService {
 
             const activePrompt = lowerPrompt + " " + previousMessageContent; // Context merge for Simple Memory
 
-            const { language } = detectLanguageRequest(content);
+            const { language } = detectLanguageRequest(processedContent);
             const isHindi = language === "hindi" || activePrompt.includes("bana") || activePrompt.includes("karo") || activePrompt.includes("do");
 
             // --- FEATURE 5: ACADEMIC JARVIS EXCEL ANALYZERS ---
@@ -382,7 +457,7 @@ export class ChatService {
                     const errorMsg = "Please upload an Excel file (.xlsx or .xls) first using the '+' button before asking me to analyze it.";
                     onChunk(errorMsg);
                     await storage.updateMessageContent(aiMsg.id, errorMsg);
-                    await this.updateTitleIfNeeded(conversationId, content);
+                    await this.updateTitleIfNeeded(conversationId, processedContent);
                     return;
                 }
 
@@ -396,7 +471,7 @@ export class ChatService {
                     const expiredMsg = "The uploaded Excel file has expired or was removed. Please upload it again.";
                     onChunk(expiredMsg);
                     await storage.updateMessageContent(aiMsg.id, expiredMsg);
-                    await this.updateTitleIfNeeded(conversationId, content);
+                    await this.updateTitleIfNeeded(conversationId, processedContent);
                     return;
                 }
 
@@ -416,47 +491,33 @@ export class ChatService {
 
                 onChunk(report);
                 await storage.updateMessageContent(aiMsg.id, report);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
             // 4.5.5 Intercept PDF to Excel Tool (Smart Assistant Mode)
-            const isPdfRequest = lowerPrompt.includes("pdf") && (lowerPrompt.includes("excel") || lowerPrompt.includes("extract") || lowerPrompt.includes("convert") || lowerPrompt.includes("table") || lowerPrompt.includes("make") || lowerPrompt.includes("bana") || lowerPrompt.includes("karo") || lowerPrompt.includes("badal") || lowerPrompt.includes("do"));
-            if (isPdfRequest && !activePrompt.includes("document") && !activePrompt.includes("summarize")) {
+            const isPdfRequest = lowerPrompt.startsWith("/excel") || lowerPrompt.startsWith("/pdf-to-excel");
+            if (isPdfRequest) {
                 const pdfResponse = isHindi
                     ? `*[कार्य निष्पादित हो रहा है]* PDF से Excel टूल खोला जा रहा है...\n\n[PDF को Excel में बदलने के लिए यहाँ क्लिक करें](/tools/pdf-to-excel)`
                     : `*[Executing Task]* Opening PDF to Excel Tool...\n\n[Click here to open the PDF to Excel Converter](/tools/pdf-to-excel)`;
                 onChunk(pdfResponse);
                 await storage.updateMessageContent(aiMsg.id, pdfResponse);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
             // 4.6 Intercept Teacher Attendance Sheet Tool (Smart Assistant Mode)
-            if (activePrompt.startsWith("/attendance")) {
+            if (activePrompt.includes("attendance sheet") || activePrompt.includes("create attendance")) {
                 const countMatch = lowerPrompt.match(/(\d+)\s*student/) || previousMessageContent.match(/(\d+)\s*student/) || activePrompt.match(/(\d+)/);
                 const count = countMatch ? parseInt(countMatch[1]) : 50;
 
-                const classesMatch = activePrompt.match(/(\d+)\s*class/);
-                const totalClasses = classesMatch ? parseInt(classesMatch[1]) : "";
-
-                const coursesList = ["bca", "mca", "btech", "b.tech", "mtech", "m.tech", "bba", "mba", "bsc", "msc", "b.com", "m.com", "aiml", "cse"];
-                let course = "BCA";
-                const foundCourse = coursesList.find(c => activePrompt.includes(c));
-                if (foundCourse) course = foundCourse.toUpperCase();
-
-                if (activePrompt.includes("bca") && activePrompt.includes("aiml")) course = "BCA AIML";
-                if (activePrompt.includes("btech") && activePrompt.includes("cse")) course = "BTECH CSE";
-
-                const semMatch = activePrompt.match(/semester\s*(\d+)/) || activePrompt.match(/sem\s*(\d+)/);
-                const semester = semMatch ? semMatch[1] : "VI";
-
                 const startMsg = isHindi
-                    ? `*[कार्य निष्पादित हो रहा है]* ERP Attendance Sheet ${count} छात्रों (${course}, Sem ${semester}) के लिए बनाई जा रही है...\n`
-                    : `*[Executing Task]* Generating ERP Attendance Sheet for ${count} students (${course}, Sem ${semester})...\n`;
+                    ? `*[कार्य निष्पादित हो रहा है]* Attendance Sheet ${count} छात्रों के लिए बनाई जा रही है...\n`
+                    : `*[Executing Task]* Generating Attendance Sheet for ${count} students...\n`;
                 onChunk(startMsg);
 
-                const fileUrl = generateAttendanceExcel(count, course, semester, totalClasses);
+                const fileUrl = generateAttendanceExcel(count);
                 if (fileUrl) {
                     const finalResponse = isHindi
                         ? `\n✅ **Attendance ERP Sheet तैयार है**\n\n[एक्सेल डाउनलोड करें](${fileUrl})`
@@ -468,12 +529,12 @@ export class ChatService {
                     onChunk(failMsg);
                     await storage.updateMessageContent(aiMsg.id, failMsg);
                 }
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
             // 4.7 Intercept Student List Excel Tool (Smart Assistant Mode)
-            if (activePrompt.startsWith("/studentlist")) {
+            if (lowerPrompt.startsWith("/studentlist")) {
                 const match = lowerPrompt.match(/(\d+)/) || previousMessageContent.match(/(\d+)/);
                 const count = match ? parseInt(match[1]) : 100;
 
@@ -494,18 +555,18 @@ export class ChatService {
                     onChunk(failMsg);
                     await storage.updateMessageContent(aiMsg.id, failMsg);
                 }
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
             // 4.8 Intercept Marks Sheet Excel Tool (Smart Assistant Mode)
-            if (activePrompt.startsWith("/marks")) {
+            if (activePrompt.includes("marksheet") || activePrompt.includes("create marksheet") || activePrompt.includes("mark sheet")) {
                 const match = lowerPrompt.match(/(\d+)/) || previousMessageContent.match(/(\d+)/);
                 const count = match ? parseInt(match[1]) : 60;
 
                 const startMsg = isHindi
-                    ? `*[कार्य निष्पादित हो रहा है]* ${count} छात्रों के लिए ERP मार्क्स शीट बनाई जा रही है...\n`
-                    : `*[Executing Task]* Generating ERP Marks Sheet for ${count} students...\n`;
+                    ? `*[कार्य निष्पादित हो रहा है]* ${count} छात्रों के लिए मार्क्स शीट बनाई जा रही है...\n`
+                    : `*[Executing Task]* Generating Marks Sheet for ${count} students...\n`;
                 onChunk(startMsg);
 
                 const fileUrl = generateMarksSheetExcel(count);
@@ -520,7 +581,7 @@ export class ChatService {
                     onChunk(failMsg);
                     await storage.updateMessageContent(aiMsg.id, failMsg);
                 }
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             }
 
@@ -529,7 +590,7 @@ export class ChatService {
             let academicPrompt = "";
             let academicMaxTokens = 80;
 
-            const isResumeRequest = activePrompt.startsWith("/resume");
+            const isResumeRequest = lowerPrompt.startsWith("/resume");
 
             if (isResumeRequest) {
                 const courses = ["bca", "mca", "btech", "b.tech", "mtech", "m.tech", "bba", "mba", "bsc", "msc", "b.com", "m.com"];
@@ -573,20 +634,25 @@ export class ChatService {
 
                 onChunk(finalResume);
                 await storage.updateMessageContent(aiMsg.id, finalResume);
-                await this.updateTitleIfNeeded(conversationId, content);
+                await this.updateTitleIfNeeded(conversationId, processedContent);
                 return;
             } else if (lowerPrompt.startsWith("/coverletter")) {
                 isAcademicTool = true;
-                academicPrompt = `Generate a professional cover letter based on: '${content.replace(/^\/coverletter/i, '').trim()}'. Include: Applicant introduction, Skills, Reason for applying, Strengths, Closing statement. Make it realistic and professional. Limit to 200–300 words.`;
+                academicPrompt = `Generate a professional cover letter based on: '${processedContent.replace(/^\/coverletter/i, '').trim()}'. Include: Applicant introduction, Skills, Reason for applying, Strengths, Closing statement. Make it realistic and professional. Limit to 200–300 words.`;
                 academicMaxTokens = 500;
-            } else if (lowerPrompt.startsWith("/apa")) {
+            } else if (lowerPrompt.includes("apa citation") || lowerPrompt.includes("ieee citation") || lowerPrompt.includes("mla citation") || lowerPrompt.includes("generate citation")) {
                 isAcademicTool = true;
-                academicPrompt = `Generate APA citation for: '${content.replace(/^\/apa/i, '').trim()}'. RULES: NEVER invent fake details. Use ONLY the provided fields (Author, Title, Year). Do NOT guess or add extra fields like editors, pages, or journals. If exact details are unknown, use this safe generic format: Author. (Year). Title. Publisher Unknown. Return ONLY the citation.`;
+                const format = lowerPrompt.includes("apa") ? "APA" : lowerPrompt.includes("ieee") ? "IEEE" : lowerPrompt.includes("mla") ? "MLA" : "APA";
+                academicPrompt = `Generate ${format} citation for: '${processedContent}'. RULES: Format perfectly according to ${format} standard. Ex: APA -> Author, A. A. (2024). Title. Journal. Volume(Issue), pages. IEEE -> [1] A. Author, "Title," Journal, 2024. MLA -> Author Name. Title. Journal. Year. Return ONLY the citation.`;
                 academicMaxTokens = 150;
-            } else if (lowerPrompt.startsWith("/ieee")) {
+            } else if (lowerPrompt.includes("research paper") && (lowerPrompt.includes("write") || lowerPrompt.includes("help") || lowerPrompt.includes("generate"))) {
                 isAcademicTool = true;
-                academicPrompt = `Generate IEEE citation for: '${content.replace(/^\/ieee/i, '').trim()}'. RULES: NEVER invent fake details. Use ONLY the provided fields (Author, Title, Year). Do NOT guess or add extra fields like editors, pages, or journals. If exact details are unknown, use this safe generic format: [1] Author Unknown, "Title," Year. Return ONLY the citation.`;
-                academicMaxTokens = 150;
+                academicPrompt = `Write a structured research paper based on: '${processedContent}'. Must include EXACTLY these numbered sections: 1. Abstract 2. Introduction 3. Literature Review 4. Methodology 5. Results 6. Conclusion 7. References. Use formal academic language.`;
+                academicMaxTokens = 800;
+            } else if (lowerPrompt.includes("calculate attendance")) {
+                isAcademicTool = true;
+                academicPrompt = `Calculate the attendance percentage based on the numbers provided in: '${processedContent}'. Return a markdown table with columns like Total Classes, Attended, and Percentage.`;
+                academicMaxTokens = 200;
             }
 
             if (isAcademicTool) {
@@ -595,8 +661,38 @@ export class ChatService {
 
             // 5. Build Prompt & Model
             // detectLanguageRequest is now hoisted to line 348
-            const domain = ollama.detectDomain(content);
-            const model = isAcademicTool ? "tinyllama" : ollama.chooseModel(content, route === "RAG", requestedModel, domain, route === "LIVE_FACT" || liveFactFailed, language);
+            const domain = ollama.detectDomain(processedContent);
+            let model = isAcademicTool ? "phi3:mini" : ollama.chooseModel(processedContent, route === "RAG", requestedModel, domain, route === "LIVE_FACT" || liveFactFailed, language);
+
+            // --- FEATURE: MODEL ROUTING FALLBACK & MANUAL OVERRIDE ---
+            const languageDetect = detectLanguage(processedContent);
+            const hindiRegex = /[\u0900-\u097F]/;
+            const romanHindiWords = ["kya", "kaise", "kyon", "hota", "hai", "samjhao", "batao", "hindi", "hinglish"];
+
+            const isHindiQuery =
+                hindiRegex.test(processedContent) ||
+                romanHindiWords.some(word =>
+                    new RegExp(`\\b${word}\\b`, 'i').test(processedContent)
+                );
+
+            if (requestedModel && requestedModel !== "auto") {
+                model = requestedModel;
+            } else if (isAcademicTool) {
+                model = "phi3:mini";
+            } else {
+                if (isHindiQuery) {
+                    model = "qwen2.5:3b";
+                } else if (languageDetect === "nonEnglish") {
+                    model = "qwen2.5:3b";
+                } else if (processedContent.length > 200) {
+                    model = "phi3:mini";
+                } else {
+                    model = "tinyllama";
+                }
+            }
+
+            // Broadcast the chosen model back to the UI
+            onChunk(JSON.stringify({ selectedModel: model }) + "\n");
 
             // Determine Mode
             let derivedMode: "FRIDAY" | "VIVA" | "PORTFOLIO" | "CODING" | "TEACHING" | "DEFAULT" = "DEFAULT";
@@ -607,19 +703,23 @@ export class ChatService {
             else if (lowerContent.includes("teach") || lowerContent.includes("step by step") || lowerContent.includes("guide me") || lowerContent.includes("learn ")) derivedMode = "TEACHING";
 
             // Prepare Prompt Content
-            let promptContent = content;
+            let promptContent = processedContent;
             if (isAcademicTool) {
                 promptContent = academicPrompt;
             } else {
-                if (derivedMode === "FRIDAY") promptContent = content.replace(/^\/(analyze|friday)/i, "").trim();
-                if (derivedMode === "VIVA") promptContent = content.replace(/^\/viva/i, "").trim();
-                if (derivedMode === "PORTFOLIO") promptContent = content.replace(/^\/(whoami|portfolio)/i, "").trim() || "Tell me about the developer.";
+                if (derivedMode === "FRIDAY") promptContent = processedContent.replace(/^\/(analyze|friday)/i, "").trim();
+                if (derivedMode === "VIVA") promptContent = processedContent.replace(/^\/viva/i, "").trim();
+                if (derivedMode === "PORTFOLIO") promptContent = processedContent.replace(/^\/(whoami|portfolio)/i, "").trim() || "Tell me about the developer.";
                 promptContent = buildMultilingualPrompt(promptContent, language);
             }
 
             // --- FEATURE 1: SIMPLE EXPLANATION CONTROL ---
             const simpleKeywords = ["simple explanation", "explain simply", "easy explanation", "explain it simply", "explain in simple terms"];
             const isSimpleRequest = simpleKeywords.some(k => lowerPrompt.includes(k));
+
+            // NEW: Detailed Explanation Request Detection
+            const detailedKeywords = ["detailed", "full explanation", "deep explanation", "in depth", "elaborate"];
+            const isDetailed = detailedKeywords.some(k => lowerPrompt.includes(k));
 
             const systemPrompt = isAcademicTool
                 ? "You are a professional Academic Assistant. Follow the user's instructions exactly."
@@ -632,7 +732,8 @@ export class ChatService {
                     context,
                     model,
                     language,
-                    simpleExplanation: isSimpleRequest
+                    simpleExplanation: isSimpleRequest,
+                    isDetailed: isDetailed
                 });
 
             // Special Header for Soft Offline Warning
@@ -641,18 +742,16 @@ export class ChatService {
             }
 
             // --- FEATURE 4: LOADING INDICATOR FIX ---
-            if (!isAcademicTool) {
-                onChunk("*(Thinking...)*\n\n");
-            }
+            // Removed backend text injection to rely purely on UI dots.
 
             // 6. Stream from Ollama
-            // Raised TinyLlama limit to 300 tokens to cure the "half responses" cutting off mid-sentence now that structural prompts restrict length naturally.
+            // Limit tokens. If not detailed, keep extremely strict caps to ensure < 5s speeds.
             const options = {
                 temperature: isAcademicTool ? 0.3 : (domain === "CODING" ? 0.1 : 0.3),
-                num_predict: isAcademicTool ? academicMaxTokens : (model === "tinyllama" ? 300 : (domain === "CODING" ? 1024 : 512))
+                num_predict: isAcademicTool ? academicMaxTokens : (isDetailed ? 1024 : (model === "tinyllama" ? 400 : 250))
             };
 
-            const reader = await ollama.generateStream(promptContent, systemPrompt, model, options);
+            const reader = await ollama.generateStream(promptContent, systemPrompt, model, options, signal);
             const decoder = new TextDecoder();
             let fullResponseText = "";
             let initialBuffer = "";
@@ -660,6 +759,10 @@ export class ChatService {
 
             // Stream Loop
             while (true) {
+                if (signal?.aborted) {
+                    console.log(`[Abort] Streaming stopped by client for conversation ${conversationId}`);
+                    break;
+                }
                 const { done, value } = await reader.read();
                 if (done) break;
 
@@ -673,10 +776,10 @@ export class ChatService {
                         if (contentChunk) {
                             fullResponseText += contentChunk;
 
-                            // Buffer the first 100 characters to cleanly strip AI intro artifacts
+                            // Buffer the first 25 characters to cleanly strip AI intro artifacts
                             if (!isStreamingStarted) {
                                 initialBuffer += contentChunk;
-                                if (initialBuffer.length >= 100) {
+                                if (initialBuffer.length >= 25) {
                                     let cleaned = cleanResponse(initialBuffer);
                                     if (cleaned) onChunk(cleaned);
                                     isStreamingStarted = true;
@@ -693,22 +796,21 @@ export class ChatService {
                 let cleaned = cleanResponse(initialBuffer);
                 if (cleaned) onChunk(cleaned);
             }
-
             // --- FEATURE: SMART MODEL INDICATOR ---
-            const modelNameDisplay = model === "tinyllama" ? "TinyLlama Fast" : (model === "qwen2.5:3b" ? "Qwen Smart" : "Phi3 Writer");
-            const modelBadge = `\n\n*Model Used: ${modelNameDisplay}*`;
-            onChunk(modelBadge);
+            // Text removed per user request. Model selection remains exclusively in UI Dropdown.
 
             // 7. Finalize (Save to DB)
             let finalContent = cleanResponse(fullResponseText);
             if (liveFactFailed) finalContent = "**[Offline Mode Warning]** Info may be outdated.\n\n" + finalContent;
 
-            finalContent += modelBadge;
-
             await storage.updateMessageContent(aiMsg.id, finalContent);
-            await this.updateTitleIfNeeded(conversationId, content);
+            await this.updateTitleIfNeeded(conversationId, processedContent);
 
         } catch (error: any) {
+            if (error.name === 'AbortError' || signal?.aborted) {
+                console.log(`[Abort] ChatService generation aborted natively for conversation ${conversationId}`);
+                return;
+            }
             console.error("ChatService Error:", error);
             const fallbackMsg = "\n\n**[System Error]** AI temporarily unavailable. Please try again.";
             onChunk(fallbackMsg);

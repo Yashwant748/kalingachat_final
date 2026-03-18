@@ -16,7 +16,27 @@ export function cleanResponse(text: string): string {
     // Basic cleanup of excessive newlines
     cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
 
-    // Remove System Prompt Leakages
+    // Remove known leakage patterns anywhere in the text
+    const leakPatterns = [
+        /EDITORIAL:\s*/gi,
+        /SYSTEM:\s*/gi,
+        /INSTRUCTION:\s*/gi,
+        /Output natively[^\n]*/gi,
+        /Do NOT use[^\n]*/gi,
+        /As required/gi,
+        /^System:?\s*/gim,
+        /^Assistant:?\s*/gim,
+        /^Instruction:?\s*/gim,
+        /\[Scope:.*?\]/gi,
+        /\[CRITICAL RULE\]:/gi,
+        /\[SIMPLE EXPLANATION MODE\]/gi
+    ];
+
+    for (const pattern of leakPatterns) {
+        cleaned = cleaned.replace(pattern, '').trim();
+    }
+
+    // Remove System Prompt Leakages (prefixes)
     const badPrefixes = [
         "You are KalingaAI",
         "You are JARVIS",
@@ -49,10 +69,11 @@ export function cleanResponse(text: string): string {
         }
     }
 
-    // Also strip out internal routing tags if they leaked anywhere inside
-    cleaned = cleaned.replace(/\[Scope:.*?\]/gi, '');
-    cleaned = cleaned.replace(/\[CRITICAL RULE\]:/gi, '');
-    cleaned = cleaned.replace(/\[SIMPLE EXPLANATION MODE\]/gi, '');
+    // Truncate extremely long responses (safety limit ~1500 words)
+    const words = cleaned.split(/\s+/);
+    if (words.length > 1500) {
+        cleaned = words.slice(0, 1500).join(' ') + "\n\n*[Response truncated due to length limits]*";
+    }
 
     return cleaned.trim();
 }

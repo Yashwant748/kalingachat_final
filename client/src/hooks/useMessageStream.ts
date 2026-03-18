@@ -26,7 +26,7 @@ export function useMessageStream({
     const [displayedContent, setDisplayedContent] = useState(shouldStream ? "" : content);
 
     // Check if we effectively finished
-    const isFinished = displayedContent.length >= content.length;
+    const isFinished = content.length > 0 && displayedContent.length >= content.length;
     const [isStreaming, setIsStreaming] = useState(shouldStream && !isFinished);
 
     // Refs for animation loop
@@ -47,7 +47,10 @@ export function useMessageStream({
         contentRef.current = content;
 
         // If we already match, we are done
-        if (displayedRef.current.length >= content.length) {
+        // Wait! We only consider it done if we actually have some content or the stream finished.
+        // If content is empty strings, we shouldn't assume it's fully streamed until it receives real content, or we know the entire stream is empty.
+        // In KalingaAI, an empty AI message means it's still waiting.
+        if (content.length > 0 && displayedRef.current.length >= content.length) {
             setIsStreaming(false);
             if (messageId) streamedMessages.add(messageId);
             return;

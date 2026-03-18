@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 
 interface RAGUploadDialogProps {
     children?: React.ReactNode;
-    onUploadSuccess?: (data: { filename: string; chunks: number; type: string; autoReply: boolean; fileId?: string }) => void;
+    onUploadSuccess?: (data: { filename: string; chunks: number; type: string; autoReply: boolean; fileId?: string; imageCaption?: string; url?: string }) => void;
 }
 
 export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUploadDialogProps) {
@@ -75,7 +75,9 @@ export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUpload
                     chunks: data.chunkCount !== undefined ? data.chunkCount : 0,
                     type: data.fileType || file.type,
                     autoReply: autoReply,
-                    fileId: data.fileId
+                    fileId: data.fileId,
+                    url: data.url,
+                    imageCaption: data.imageCaption
                 });
             }
 
@@ -110,7 +112,7 @@ export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUpload
                 <DialogHeader>
                     <DialogTitle>Upload to Knowledge Base</DialogTitle>
                     <DialogDescription>
-                        Upload PDF or TXT files. The AI will use this context in conversations.
+                        Upload PDF, TXT, JPG, PNG or WEBP files. The AI will use this context in conversations.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-6 py-4">
@@ -119,7 +121,7 @@ export default function RAGUploadDialog({ children, onUploadSuccess }: RAGUpload
                         <Input
                             id="file"
                             type="file"
-                            accept=".txt,.pdf,.xlsx,.xls"
+                            accept=".pdf,.txt,.png,.jpg,.jpeg,.webp"
                             onChange={handleFileChange}
                             disabled={uploading}
                         />

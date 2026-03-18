@@ -8,7 +8,10 @@ import type { Conversation, Message } from "@shared/schema";
 
 export function useChat() {
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
+  const [activeStreams, setActiveStreams] = useState<Record<number, AbortController>>({});
+  const [isResponding, setIsResponding] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -27,6 +30,7 @@ export function useChat() {
       return res.data;
     },
     enabled: !!isAuthenticated,
+    networkMode: "always",
   });
 
   const {
@@ -40,12 +44,14 @@ export function useChat() {
       return res.data;
     },
     enabled: !!isAuthenticated && !!currentConversationId,
+    networkMode: "always",
   });
 
   const { data: health } = useQuery({
     queryKey: ["health"],
     queryFn: chatApi.health,
     refetchInterval: 30000,
+    networkMode: "always",
   });
 
   // --- ACTIONS ---
@@ -67,6 +73,7 @@ export function useChat() {
         };
       }
     },
+    networkMode: "always",
     onMutate: async (newData) => {
       await queryClient.cancelQueries({ queryKey: ["conversations"] });
       const previousConversations = queryClient.getQueryData(["conversations"]);
@@ -87,7 +94,6 @@ export function useChat() {
 
       // Instantly switch to the new chat
       setCurrentConversationId(tempId);
-      setIsTyping(false);
 
       return { previousConversations, tempId };
     },
@@ -112,64 +118,103 @@ export function useChat() {
   });
 
   const sendMessageMutation = useMutation({
-    mutationFn: async (variables: { conversationId: number; content: string; model?: string }) => {
+    mutationFn: async (variables: { conversationId: number; content: string; model?: string; signal?: AbortSignal }) => {
+      setIsResponding(true);
+      setIsSimulating(true);
       let aiMessageId: number | null = null;
       let fullContent = "";
 
-      await chatApi.sendMessageStream(variables.conversationId, variables.content, (chunk) => {
-        // Check if it's the header chunk
-        try {
-          if (!aiMessageId && chunk.trim().startsWith('{')) {
-            const header = JSON.parse(chunk);
-            if (header.aiMessageId) {
-              aiMessageId = header.aiMessageId;
+      try {
+        await chatApi.sendMessageStream(variables.conversationId, variables.content, (chunk) => {
+          // Process chunk lines properly in case the network batches multiple lines together
+          const lines = chunk.split('\n');
+          let textBuffer = "";
 
-              // Optimistically add the empty AI message so it renders instantly
-              queryClient.setQueryData(["messages", variables.conversationId], (old: Message[] | undefined) => {
-                // Ensure we don't accidentally add it twice if a refetch happens to race us
-                if (old && old.some(m => m.id === header.aiMessageId)) return old;
+          for (const line of lines) {
+            if (!line) continue;
 
-                const newAiMsg: Message = {
-                  id: header.aiMessageId,
-                  conversationId: variables.conversationId,
-                  content: "",
-                  sender: "ai",
-                  timestamp: new Date()
-                };
-                return [...(old || []), newAiMsg];
-              });
+            try {
+              if (line.trim().startsWith('{')) {
+                const parsed = JSON.parse(line);
 
-              return;
+                if (parsed.updateUserMessage) {
+                  queryClient.setQueryData(["messages", variables.conversationId], (old: Message[] | undefined) => {
+                    if (!old) return old;
+                    return old.map(m => m.id === parsed.updateUserMessage.id ? { ...m, content: parsed.updateUserMessage.content } : m);
+                  });
+                  continue;
+                }
+
+                if (parsed.selectedModel && aiMessageId) {
+                  queryClient.setQueryData(["messages", variables.conversationId], (old: Message[] | undefined) => {
+                    if (!old) return old;
+                    return old.map(m => m.id === aiMessageId ? { ...m, usedModel: parsed.selectedModel } as unknown as Message : m);
+                  });
+                  continue;
+                }
+
+                if (!aiMessageId && parsed.aiMessageId) {
+                  aiMessageId = parsed.aiMessageId;
+                  // Optimistically add the empty AI message so it renders instantly
+                  queryClient.setQueryData(["messages", variables.conversationId], (old: Message[] | undefined) => {
+                    if (old && old.some(m => m.id === parsed.aiMessageId)) return old;
+                    const newAiMsg: Message = {
+                      id: parsed.aiMessageId,
+                      conversationId: variables.conversationId,
+                      content: "",
+                      sender: "ai",
+                      timestamp: new Date()
+                    };
+                    return [...(old || []), newAiMsg];
+                  });
+                  continue;
+                }
+
+                // If it successfully parsed as a known JSON but didn't match our headers, ignore it
+                // If it parsed as an unknown JSON without our keys, we just drop it (highly unlikely).
+              } else {
+                textBuffer += line + "\n";
+              }
+            } catch (e) {
+              // If JSON parsing fails, treat it as normal streaming text
+              textBuffer += line + "\n";
             }
           }
-        } catch (e) { }
 
-        // Append to content
-        fullContent += chunk;
+          if (textBuffer) {
+            // Any other streamed chunk means generation has actively started
+            setIsSimulating(false);
 
-        // Update the message in the cache directly for smooth streaming
-        queryClient.setQueryData(["messages", currentConversationId], (old: Message[] | undefined) => {
-          if (!old) return [];
-          if (!aiMessageId) return old; // Wait for ID
+            // Append to content (removing the artificially added trailing newline from the last arbitrary split)
+            fullContent += chunk.endsWith('\n') ? textBuffer : textBuffer.replace(/\n$/, '');
 
-          const msgIndex = old.findIndex(m => m.id === aiMessageId);
-          if (msgIndex === -1) {
-            return old;
+            // Update the message in the cache directly for smooth streaming
+            queryClient.setQueryData(["messages", currentConversationId], (old: Message[] | undefined) => {
+              if (!old) return [];
+              if (!aiMessageId) return old; // Wait for ID
+
+              const msgIndex = old.findIndex(m => m.id === aiMessageId);
+              if (msgIndex === -1) {
+                return old;
+              }
+
+              const newMessages = [...old];
+              newMessages[msgIndex] = {
+                ...newMessages[msgIndex],
+                content: fullContent
+              };
+              return newMessages;
+            });
           }
-
-          const newMessages = [...old];
-          newMessages[msgIndex] = {
-            ...newMessages[msgIndex],
-            content: fullContent
-          };
-          return newMessages;
-        });
-      }, variables.model);
-      return { success: true };
+        }, variables.model, variables.signal);
+      } finally {
+        setIsResponding(false);
+        setIsSimulating(false); // Failsafe release
+      }
+      return { success: true, conversationId: variables.conversationId };
     },
+    networkMode: "always",
     onMutate: async (variables) => {
-      setIsTyping(true);
-
       // Cancel refetches
       await queryClient.cancelQueries({ queryKey: ["messages", variables.conversationId] });
 
@@ -186,15 +231,22 @@ export function useChat() {
         return [...(old || []), newUserMsg];
       });
 
-      return { tempUserMsgId };
+      return { tempUserMsgId, conversationId: variables.conversationId };
     },
-    onSuccess: () => {
-      setIsTyping(false);
+    onSuccess: (data) => {
+      removeStream(data.conversationId);
       queryClient.invalidateQueries({ queryKey: ["messages", currentConversationId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
-    onError: (error: any) => {
-      setIsTyping(false);
+    onError: (error: any, variables) => {
+      removeStream(variables.conversationId);
+
+      // If it's just an abort, don't show an aggressive error toast
+      if (error.name === 'AbortError') {
+        queryClient.invalidateQueries({ queryKey: ["messages", currentConversationId] });
+        return;
+      }
+
       console.error("SendMessage Error:", error);
       toast({
         title: "Message failed",
@@ -232,7 +284,8 @@ export function useChat() {
     onError: (err, id, context: any) => {
       queryClient.setQueryData(["conversations"], context.previousConversations);
       toast({ title: "Error deleting conversation", description: err.message, variant: "destructive" });
-    }
+    },
+    networkMode: "always",
   });
 
   // --- LOGIC ---
@@ -247,15 +300,14 @@ export function useChat() {
     }
   }, [isAuthenticated, conversations, conversationsLoading, currentConversationId, createConversationMutation]);
 
-  // Reset typing state when switching conversations
+  // Reset scroll when switching conversations
   useEffect(() => {
-    setIsTyping(false);
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [currentConversationId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages]);
 
   // --- FUNCTIONS FOR THE UI ---
 
@@ -263,9 +315,34 @@ export function useChat() {
     createConversationMutation.mutate({ title: `New Chat` });
   };
 
+  const removeStream = (id: number) => {
+    setActiveStreams(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
   const sendMessage = (content: string, model?: string) => {
     if (!currentConversationId) return;
-    sendMessageMutation.mutate({ conversationId: currentConversationId, content, model });
+
+    // Create new fetch Abort Controller
+    const controller = new AbortController();
+    setActiveStreams(prev => ({ ...prev, [currentConversationId]: controller }));
+
+    sendMessageMutation.mutate({ conversationId: currentConversationId, content, model, signal: controller.signal });
+  };
+
+  const stopGeneration = (id: number) => {
+    if (activeStreams[id]) {
+      activeStreams[id].abort();
+      removeStream(id);
+    }
+  };
+
+  const isChatSending = (id: number | null) => {
+    if (!id) return false;
+    return !!activeStreams[id];
   };
 
   // --- THIS IS THE FIX ---
@@ -275,13 +352,16 @@ export function useChat() {
     messages: messages || [], // <-- FIX IS HERE
     currentConversationId,
     health,
-    isTyping,
+    isTyping: isChatSending(currentConversationId),
     messagesEndRef,
     conversationsLoading,
     chatInitializing: conversationsLoading,
-    isSending: sendMessageMutation.isPending,
     isCreating: createConversationMutation.isPending,
     isDeleting: deleteConversationMutation.isPending,
+    isChatSending,
+    isResponding,
+    isSimulating,
+    stopGeneration,
     setCurrentConversationId,
     startNewConversation,
     sendMessage,

@@ -464,39 +464,90 @@ export function useWebSpeech(): UseWebSpeechReturn {
         setInterimTranscript('');
     }, []);
 
-    const speak = useCallback((text: string) => {
-        if (synthesisRef.current) {
-            window.speechSynthesis.cancel();
-            const spokenText = text
-                .replace(/KalingaAI/gi, "Kuh-ling-gah A.I.")
-                .replace(/Kalinga/gi, "Kuh-ling-gah");
-
-            const utterance = new SpeechSynthesisUtterance(spokenText);
-
-            utterance.onstart = () => setIsSpeaking(true);
-            utterance.onend = () => setIsSpeaking(false);
-            utterance.onerror = (e) => {
-                console.error("Speech synthesis error", e);
-                setIsSpeaking(false);
-                window.speechSynthesis.cancel();
+    // Helper: robustly load voices (waits for voiceschanged event if needed)
+    const getVoicesAsync = (): Promise<SpeechSynthesisVoice[]> => {
+        return new Promise((resolve) => {
+            let voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                resolve(voices);
+                return;
+            }
+            // Voices not loaded yet — wait for the event (fires once on first load)
+            const onVoicesChanged = () => {
+                voices = window.speechSynthesis.getVoices();
+                resolve(voices);
+                window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
             };
-
-            let voices = synthesisRef.current.getVoices();
-            if (voices.length === 0) voices = window.speechSynthesis.getVoices();
-
-            // Prefer local voices for offline support
-            const preferredVoice =
-                voices.find(v => v.localService === true && v.lang.startsWith('en')) ||
-                voices.find(v => v.name.includes("Google US English")) ||
-                voices[0];
-
-            if (preferredVoice) utterance.voice = preferredVoice;
-
+            window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+            // Failsafe: resolve with empty after 2s so speak doesn't hang forever
             setTimeout(() => {
-                if (window.speechSynthesis) window.speechSynthesis.resume();
-                synthesisRef.current?.speak(utterance);
-            }, 50);
+                window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+                resolve(window.speechSynthesis.getVoices());
+            }, 2000);
+        });
+    };
+
+    const speak = useCallback(async (text: string) => {
+        if (!window.speechSynthesis) {
+            console.warn('[TTS] SpeechSynthesis not supported on this device.');
+            return;
         }
+
+        // Cancel any in-progress speech
+        window.speechSynthesis.cancel();
+
+        const spokenText = text
+            .replace(/KalingaAI/gi, "Kuh-ling-gah A.I.")
+            .replace(/Kalinga/gi, "Kuh-ling-gah")
+            // Strip markdown so the voice doesn't say "asterisk asterisk"
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/\*(.*?)\*/g, '$1')
+            .replace(/`(.*?)`/g, '$1')
+            .replace(/#{1,6} /g, '')
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // strip links
+            .trim();
+
+        if (!spokenText) return;
+
+        const utterance = new SpeechSynthesisUtterance(spokenText);
+
+        // Load voices — prefer LOCAL (offline) ones first
+        const voices = await getVoicesAsync();
+
+        const offlineVoice =
+            voices.find(v => v.localService === true && v.lang.startsWith('en-')) ||
+            voices.find(v => v.localService === true && v.lang.startsWith('en')) ||
+            voices.find(v => v.localService === true) || // any local voice as last resort
+            voices.find(v => v.name.toLowerCase().includes('microsoft')) || // Windows offline
+            voices.find(v => v.name.toLowerCase().includes('siri')) || // macOS offline
+            voices[0];
+
+        if (offlineVoice) {
+            utterance.voice = offlineVoice;
+            console.log(`[TTS] Using voice: "${offlineVoice.name}" (local: ${offlineVoice.localService})`);
+        } else {
+            console.warn('[TTS] No voices available — browser may speak with default.');
+        }
+
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = (e) => {
+            console.error('[TTS] Speech error:', e.error);
+            setIsSpeaking(false);
+            window.speechSynthesis.cancel();
+        };
+
+        // Small delay to allow cancel() to fully clear before new speak
+        setTimeout(() => {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.resume(); // in case it was paused
+                window.speechSynthesis.speak(utterance);
+            }
+        }, 80);
     }, []);
 
     // Cleanup on unmount

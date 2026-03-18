@@ -28,13 +28,14 @@ export const chatApi = {
   sendMessage: (cid: number, content: string, model?: string) =>
     api.post(`/api/conversations/${cid}/messages`, { content, model }),
 
-  sendMessageStream: async (cid: number, content: string, onChunk: (chunk: string) => void, model?: string) => {
+  sendMessageStream: async (cid: number, content: string, onChunk: (chunk: string) => void, model?: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/conversations/${cid}/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ content, model }),
+      signal
     });
 
     if (!response.ok) {

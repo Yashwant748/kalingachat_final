@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "@/hooks/useChat";
 import { useAuth } from "@/hooks/useAuth";
+import type { Message } from "@shared/schema";
+
+interface ChatInterfaceProps {
+  initialMessage?: string;
+}
 import MessageBubble from "./MessageBubble";
 import ThemeToggle from "./ThemeToggle";
 import Sidebar from "./Sidebar";
@@ -10,14 +15,45 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 import { useWebSpeech } from "@/hooks/useWebSpeech";
 import { Switch } from "@/components/ui/switch"; // Assuming we have a Switch or I can use a Button toggle
 import { cn } from "@/lib/utils";
 
+// --- AI Thinking Simulation Component ---
+function ThinkingSimulation() {
+  const [step, setStep] = useState(0);
+  const steps = [
+    "Analyzing your question...",
+    "Selecting the best AI model...",
+    "Generating response..."
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStep((prev) => (prev < steps.length - 1 ? prev + 1 : prev));
+    }, 800);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex flex-col space-y-2 mb-4 animate-in fade-in zoom-in duration-500">
+      <div className="flex items-center space-x-3 p-3 bg-primary/10 border border-primary/20 rounded-xl max-w-[280px]">
+        <div className="flex space-x-1.5">
+          <div className="w-2 h-2 rounded-full bg-primary/80 animate-bounce" style={{ animationDelay: "0ms" }} />
+          <div className="w-2 h-2 rounded-full bg-primary/80 animate-bounce" style={{ animationDelay: "150ms" }} />
+          <div className="w-2 h-2 rounded-full bg-primary/80 animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+        <span className="text-xs font-medium text-primary/90">{steps[step]}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatInterface() {
   const [inputMessage, setInputMessage] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string>(() => localStorage.getItem("kalinga_model") || "tinyllama");
+  const [selectedModel, setSelectedModel] = useState<string>(() => localStorage.getItem("kalinga_model") || "auto");
 
   // Save selection
   useEffect(() => {
@@ -28,7 +64,7 @@ export default function ChatInterface() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const {
     messages,
@@ -37,7 +73,10 @@ export default function ChatInterface() {
     health,
     isTyping,
     messagesEndRef,
-    isSending,
+    isChatSending,
+    isResponding,
+    isSimulating,
+    stopGeneration,
     sendMessage,
     chatInitializing,
     refetchConversations,
@@ -46,6 +85,8 @@ export default function ChatInterface() {
     startNewConversation,
     deleteConversationMutation
   } = useChat();
+
+  const sending = isChatSending(currentConversationId);
 
   // --- JARVIS / VOICE MODE ---
   const {
@@ -97,6 +138,122 @@ export default function ChatInterface() {
     }
   }, [transcript, interimTranscript, isListening]);
 
+  // SIMULATE AI RESPONSES FOR QUICK TOOLS
+  const simulateInstantAiResponse = (userPrompt: string, aiResponse: string) => {
+    if (!currentConversationId) return;
+
+    const tempUserMsgId = Date.now();
+    const tempAiMsgId = tempUserMsgId + 1;
+
+    // Optimistically add both the user message and the simulated AI response to React Query
+    queryClient.setQueryData(["messages", currentConversationId], (old: Message[] | undefined) => {
+      const newUserMsg: Message = {
+        id: tempUserMsgId,
+        conversationId: currentConversationId,
+        content: userPrompt,
+        sender: "user",
+        timestamp: new Date()
+      };
+      
+      const newAiMsg: Message = {
+        id: tempAiMsgId,
+        conversationId: currentConversationId,
+        content: aiResponse,
+        sender: "ai",
+        timestamp: new Date()
+      };
+
+      return [...(old || []), newUserMsg, newAiMsg];
+    });
+
+    // Force scroll to bottom
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }, 100);
+  };
+
+  // Helper: fetch weather and show as Toast (no chat injection, no redirect)
+  const showWeatherToast = async () => {
+    if (!navigator.onLine) {
+      toast({
+        title: "⛅ Weather Unavailable",
+        description: "Please connect to the network.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      return;
+    }
+    try {
+      toast({ title: "⛅ Detecting location...", duration: 2000 });
+      
+      let lat = 28.6139; // Default New Delhi
+      let lon = 77.2090;
+      let locationName = "New Delhi (Default)";
+
+      // Try to get real location
+      if ("geolocation" in navigator) {
+        try {
+          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { 
+              enableHighAccuracy: true,
+              timeout: 10000, 
+              maximumAge: 0 
+            });
+          });
+          lat = position.coords.latitude;
+          lon = position.coords.longitude;
+          locationName = "Current Location";
+        } catch (geoErr) {
+          console.warn("Geolocation denied/failed:", geoErr);
+        }
+      }
+
+      toast({ title: "⛅ Fetching weather...", duration: 2000 });
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`
+      );
+      if (!res.ok) throw new Error("Weather API failed");
+      const data = await res.json();
+      const temp = data.current_weather.temperature;
+      const wind = data.current_weather.windspeed;
+      const wmoMap: Record<number, string> = {
+        0: "☀️ Clear Sky", 1: "🌤 Mainly Clear", 2: "⛅ Partly Cloudy",
+        3: "☁️ Overcast", 45: "🌫 Foggy", 48: "🌫 Icy Fog",
+        51: "🌦 Light Drizzle", 61: "🌧 Slight Rain", 71: "🌨 Slight Snow",
+        80: "🌦 Rain Showers", 95: "⛈ Thunderstorm",
+      };
+      const condition = wmoMap[data.current_weather.weathercode] || `Code ${data.current_weather.weathercode}`;
+      toast({
+        title: `🌡 ${temp}°C — ${condition}`,
+        description: `Wind: ${wind} km/h · ${locationName}`,
+        duration: 8000,
+      });
+    } catch {
+      toast({
+        title: "Weather Unavailable",
+        description: "Could not fetch live weather. Try again later.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    }
+  };
+
+  // Helper: show time as toast
+  const showTimeToast = () => {
+    const time = new Date().toLocaleTimeString();
+    toast({ title: "🕐 Current Time", description: time, duration: 5000 });
+  };
+
+  // Helper: show date as toast
+  const showDateToast = () => {
+    const date = new Date().toLocaleDateString(undefined, {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+    });
+    toast({ title: "📅 Today's Date", description: date, duration: 5000 });
+  };
+
   // JARVIS LOGIC: Auto-Send on Silence
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -146,14 +303,13 @@ export default function ChatInterface() {
   };
 
 
-  // UX Fix: Rely on Backend health, not deep Ollama check for UI status
-  const isBackendConnected = health?.backend || (messages && messages.length > 0) || false;
-  // Network Status
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  // UX Fix: Rely on Backend health combined with PC network status
+  const isBackendConnected = !!health;
+  const [isNetworkOnline, setIsNetworkOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => setIsNetworkOnline(true);
+    const handleOffline = () => setIsNetworkOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
@@ -162,19 +318,83 @@ export default function ChatInterface() {
     };
   }, []);
 
-  const isConnected = isBackendConnected && isOnline;
+  const isSystemOnline = isBackendConnected && isNetworkOnline;
 
   // UX Fix: Force online state visually after small timeout to prevent flicker on load
   const [showOnline, setShowOnline] = useState(false);
+
   useEffect(() => {
     // If connected, show immediately
-    if (isConnected) setShowOnline(true);
+    if (isSystemOnline) setShowOnline(true);
     else {
       // If loading, wait 1.5s then assume online if no hard error (Optimistic UI)
       const timer = setTimeout(() => setShowOnline(true), 1500);
       return () => clearTimeout(timer);
     }
-  }, [isConnected]);
+  }, [isSystemOnline]);
+
+  // ── Voice Greeting: fires once on login/auth, works offline ──
+  const welcomeSentRef = useRef(false);
+  const toastFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    if (welcomeSentRef.current) return;
+    welcomeSentRef.current = true;
+
+    const userName = user.name || user.email?.split('@')[0] || "";
+    const greeting = userName
+      ? `Hello ${userName}, how may I help you?`
+      : "Hello, how may I help you?";
+
+    const trySpeak = () => {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(greeting);
+      const voices = window.speechSynthesis.getVoices();
+      const offline =
+        voices.find(v => v.localService && v.lang.startsWith('en')) ||
+        voices.find(v => v.localService) ||
+        voices[0];
+      if (offline) utter.voice = offline;
+      window.speechSynthesis.speak(utter);
+    };
+
+    const voices = window.speechSynthesis?.getVoices();
+    if (voices && voices.length > 0) {
+      setTimeout(trySpeak, 1500);
+    } else {
+      window.speechSynthesis?.addEventListener('voiceschanged', trySpeak, { once: true });
+      setTimeout(trySpeak, 2500);
+    }
+  }, [isAuthenticated, user]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (toastFiredRef.current) return;
+
+    if (isSystemOnline) {
+      toastFiredRef.current = true;
+      toast({
+        title: "System Online",
+        description: "Welcome to KalingaAI",
+        className: "kalinga-notification"
+      });
+    } else {
+      const timer = setTimeout(() => {
+        if (!toastFiredRef.current) {
+          toastFiredRef.current = true;
+          toast({
+            title: "System Offline",
+            description: "Local mode active. Some features may be unavailable.",
+            variant: "destructive",
+            className: "kalinga-notification"
+          });
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSystemOnline, isAuthenticated, toast]);
 
   // DYNAMIC MODE BADGE
   const getModeBadge = () => {
@@ -193,19 +413,78 @@ export default function ChatInterface() {
     }
   }, [inputMessage]);
 
-  // Smooth scroll to bottom on new messages
+  // Smooth scroll to bottom on new messages (Respect User Scroll)
   useEffect(() => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      const el = messagesEndRef.current;
+      // Find the Radix scroll viewport or any scrolling parent
+      let scrollContainer: HTMLElement | null = el.parentElement;
+      while (scrollContainer) {
+        if (scrollContainer.hasAttribute('data-radix-scroll-area-viewport') ||
+          window.getComputedStyle(scrollContainer).overflowY === 'auto' ||
+          window.getComputedStyle(scrollContainer).overflowY === 'scroll') {
+          break;
+        }
+        scrollContainer = scrollContainer.parentElement;
+      }
+
+      if (scrollContainer) {
+        const isNearBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 150;
+        if (isNearBottom) {
+          el.scrollIntoView({ behavior: "smooth" });
+        }
+      } else {
+        // Fallback if no scroll container is found
+        el.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [messages, isTyping]);
 
   const handleSendMessage = (message?: string) => {
     if (chatInitializing) return;
     const messageToSend = message || inputMessage.trim();
-    if (!messageToSend || isSending || isTyping) return;
+    if (!messageToSend || sending || isTyping) return;
+
+    const lowerMsg = messageToSend.toLowerCase();
+    
+    // Command Interceptors & Simulated AI Output
+    if (lowerMsg === "open google") {
+      window.open("https://google.com", "_blank");
+      return;
+    } else if (lowerMsg.startsWith("search google ")) {
+      const query = encodeURIComponent(messageToSend.substring(14).trim());
+      window.open(`https://google.com/search?q=${query}`, "_blank");
+      return;
+    } else if (lowerMsg === "open youtube") {
+      window.open("https://youtube.com", "_blank");
+      return;
+    } else if (lowerMsg.startsWith("search youtube ") || lowerMsg.startsWith("search on youtube ")) {
+      const query = encodeURIComponent(messageToSend.replace(/search (on )?youtube /i, "").trim());
+      window.open(`https://youtube.com/results?search_query=${query}`, "_blank");
+      return;
+    } else if (lowerMsg === "current time" || lowerMsg === "what time is it" || lowerMsg === "time") {
+        showTimeToast();
+        setInputMessage("");
+        return;
+    } else if (lowerMsg === "today's date" || lowerMsg === "what is today's date" || lowerMsg === "date") {
+        showDateToast();
+        setInputMessage("");
+        return;
+    } else if (lowerMsg === "weather" || lowerMsg.startsWith("weather ") || lowerMsg === "what is the weather") {
+        showWeatherToast();
+        setInputMessage("");
+        return;
+    }
 
     sendMessage(messageToSend, selectedModel);
+
+    // Force scroll to bottom when user explicitly sends a message
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }, 100);
+
     if (!message) {
       setInputMessage("");
       // Reset height
@@ -284,9 +563,9 @@ export default function ChatInterface() {
                       </span>
                     </div>
                     <div className="flex items-center space-x-1.5 mt-0.5">
-                      <div className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 animate-pulse'}`} />
+                      <div className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${isSystemOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 animate-pulse'}`} />
                       <span className="text-[9px] font-mono text-muted-foreground tracking-widest uppercase">
-                        SYSTEM {isOnline ? 'ONLINE' : 'OFFLINE'}
+                        SYSTEM {isSystemOnline ? 'ONLINE' : 'OFFLINE'}
                       </span>
                     </div>
                   </div>
@@ -302,6 +581,7 @@ export default function ChatInterface() {
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="bg-white/5 border border-white/10 text-xs rounded-lg px-2 py-1 text-muted-foreground focus:outline-none hover:bg-white/10 transition-colors"
                 >
+                  <option value="auto">Auto Routing (Recommended)</option>
                   <option value="tinyllama">TinyLlama (Fast Default)</option>
                   <option value="phi3:mini">Phi3 (Smart Mode)</option>
                   <option value="qwen2.5:3b">Qwen (Deep Mode)</option>
@@ -333,7 +613,7 @@ export default function ChatInterface() {
                     setAutoSpeak(newState);
                     if (newState) {
                       toast({ title: "Voice Mode: ON", description: "I will read my responses aloud." });
-                      speak("Voice mode online. I am ready.");
+                      speak("Voice mode active. I am ready.");
                     } else {
                       toast({ title: "Voice Mode: OFF" });
                       stopSpeaking();
@@ -406,15 +686,27 @@ export default function ChatInterface() {
           ) : (
             <ScrollArea className="h-full px-4" ref={scrollRef}>
               <div className="w-full max-w-5xl mx-auto py-6 space-y-8">
-                {messages.map((message, index) => (
+                {messages.map((message: Message, index: number) => (
                   <MessageBubble
                     key={message.id}
                     message={message}
                     isLast={index === messages.length - 1}
+                    previousMessage={index > 0 ? messages[index - 1] : undefined}
                   />
                 ))}
 
-                {/* TypingIndicator removed to prevent double buffering - MessageBubble handles it */}
+                {/* Rendering the new AI logic simulation indicator */}
+                {isSimulating && <ThinkingSimulation />}
+
+                {/* TypingIndicator removed to prevent double buffering - MessageBubble handles it 
+                    BUT we still need the old 3-dots to show up while streaming natively */}
+                {isResponding && !isSimulating && (
+                  <div className="ai-thinking-indicator">
+                    <span className="dot"></span>
+                    <span className="dot"></span>
+                    <span className="dot"></span>
+                  </div>
+                )}
 
                 <div ref={messagesEndRef} className="h-4" />
               </div>
@@ -428,14 +720,25 @@ export default function ChatInterface() {
             <div className="relative flex items-end gap-2 bg-card/50 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-lg focus-within:ring-2 focus-within:ring-primary/50 focus-within:border-primary/50 transition-all duration-300">
               <RAGUploadDialog
                 onUploadSuccess={(data) => {
-                  const params = JSON.stringify({
-                    filename: data.filename,
-                    chunks: data.chunks,
-                    type: data.type,
-                    fileId: data.fileId
-                  });
-                  // 1. Send the Attachment Card Message (Always)
-                  handleSendMessage(`[RAG_ATTACHMENT]:${params}`);
+                  if (data.type === 'image') {
+                    const params = JSON.stringify({
+                      filename: data.filename,
+                      url: data.url,
+                      caption: data.imageCaption,
+                      fileId: data.fileId
+                    });
+                    // 1. Send the Attachment Card Message (Always)
+                    handleSendMessage(`[IMAGE_ATTACHMENT]:${params}`);
+                  } else {
+                    const params = JSON.stringify({
+                      filename: data.filename,
+                      chunks: data.chunks,
+                      type: data.type,
+                      fileId: data.fileId
+                    });
+                    // 1. Send the Attachment Card Message (Always)
+                    handleSendMessage(`[RAG_ATTACHMENT]:${params}`);
+                  }
 
                   // 2. If Demo Mode (Auto Reply) is ON, trigger AI response
                   if (data.autoReply) {
@@ -448,7 +751,7 @@ export default function ChatInterface() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="mb-1 ml-1 h-10 w-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+                  className="mb-1 ml-1 h-10 w-10 shrink-0 rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
                 >
                   <i className="fas fa-plus" />
                 </Button>
@@ -463,7 +766,6 @@ export default function ChatInterface() {
                     "flex-1 min-h-[44px] max-h-[160px] bg-transparent border-0 focus-visible:ring-0 resize-none py-3 px-4 text-base font-inter transition-all duration-200",
                     // Voice processing states
                     isListening && "bg-red-500/5 border-l-2 border-l-red-500/50",
-                    isModelLoading && "bg-primary/5 border-l-2 border-l-primary/50 animate-pulse",
                     voiceError && "bg-destructive/5 border-l-2 border-l-destructive/50"
                   )}
                   placeholder="Message KalingaAI..."
@@ -478,7 +780,7 @@ export default function ChatInterface() {
               </div>
               {/* Mic Button - Moved Here */}
               {isSpeechSupported && (
-                <div className="flex items-end mb-1 mr-1">
+                <div className="flex items-end mb-1 mr-1 shrink-0">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -504,25 +806,40 @@ export default function ChatInterface() {
 
               )}
 
-              {/* Send Button */}
-              <Button
-                onClick={() => handleSendMessage()}
-                disabled={chatInitializing}
-                className={`
-                    mb-1 mr-1 h-10 w-10 rounded-xl transition-all duration-300 shadow-md flex items-center justify-center
-                    ${inputMessage.trim() || isSending || isTyping
-                    ? 'bg-primary hover:bg-primary/90 text-white translate-y-0 opacity-100'
-                    : 'bg-muted text-muted-foreground translate-y-0 opacity-50'
-                  }
-                  `}
-                title={isSending || isTyping ? "AI is responding" : "Send Message"}
-              >
-                {isSending || isTyping ? (
-                  <i className="fas fa-spinner animate-spin text-white"></i>
-                ) : (
+              {/* Send / Stop Button */}
+              {sending ? (
+                <Button
+                  onClick={() => {
+                    if (currentConversationId) {
+                      stopGeneration(currentConversationId);
+                      toast({
+                        title: "Generation halted successfully.",
+                        description: "Ready for next prompt.",
+                        variant: "default",
+                      });
+                    }
+                  }}
+                  className="mb-1 mr-1 h-10 w-10 shrink-0 rounded-xl transition-all duration-300 shadow-md flex items-center justify-center bg-red-500/20 text-red-500 hover:bg-red-500/30 border border-red-500/50"
+                  title="Stop Generating"
+                >
+                  <i className="fas fa-stop" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => handleSendMessage()}
+                  disabled={chatInitializing || isTyping}
+                  className={`
+                      mb-1 mr-1 h-10 w-10 shrink-0 rounded-xl transition-all duration-300 shadow-md flex items-center justify-center
+                      ${inputMessage.trim() && !isTyping
+                      ? 'bg-primary hover:bg-primary/90 text-white translate-y-0 opacity-100'
+                      : 'bg-muted text-muted-foreground translate-y-0 opacity-50'
+                    }
+                    `}
+                  title={isTyping ? "AI is responding" : "Send Message"}
+                >
                   <i className="fas fa-arrow-up" />
-                )}
-              </Button>
+                </Button>
+              )}
             </div>
             <div className="text-center mt-2">
               <p className="text-[10px] text-muted-foreground/60">

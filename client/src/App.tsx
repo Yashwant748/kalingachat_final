@@ -9,6 +9,11 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import PdfToExcel from "@/pages/Tools/PdfToExcel";
+import PdfAddText from "@/pages/Tools/PdfAddText";
+import PdfWatermark from "@/pages/Tools/PdfWatermark";
+import PdfMerge from "@/pages/Tools/PdfMerge";
+import PdfSplit from "@/pages/Tools/PdfSplit";
+import PdfRotate from "@/pages/Tools/PdfRotate";
 
 import { AuthProvider } from "@/hooks/AuthProvider";
 import { useAuth } from "@/hooks/useAuth";
@@ -52,6 +57,11 @@ export default function App() {
             <Routes>
               <Route path="/" element={<ProtectedRoute><ChatInterface /></ProtectedRoute>} />
               <Route path="/tools/pdf-to-excel" element={<ProtectedRoute><PdfToExcel /></ProtectedRoute>} />
+              <Route path="/tools/pdf-add-text" element={<ProtectedRoute><PdfAddText /></ProtectedRoute>} />
+              <Route path="/tools/pdf-watermark" element={<ProtectedRoute><PdfWatermark /></ProtectedRoute>} />
+              <Route path="/tools/pdf-merge" element={<ProtectedRoute><PdfMerge /></ProtectedRoute>} />
+              <Route path="/tools/pdf-split" element={<ProtectedRoute><PdfSplit /></ProtectedRoute>} />
+              <Route path="/tools/pdf-rotate" element={<ProtectedRoute><PdfRotate /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="*" element={<NotFound />} />

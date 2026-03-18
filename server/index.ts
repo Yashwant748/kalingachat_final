@@ -43,6 +43,7 @@ app.use(passport.session());
 app.use("/generated-images", express.static(path.join(__dirname, "..", "generated-images")));
 app.use("/generated-excel", express.static(path.join(process.cwd(), "server", "generated-excel")));
 app.use("/generated-files", express.static(path.join(process.cwd(), "public", "generated-files")));
+app.use("/uploads", express.static(path.join(process.cwd(), "public", "uploads")));
 
 // --- API Routes ---
 app.use("/api", routes);

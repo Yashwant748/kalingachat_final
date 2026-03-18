@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { decodeImageCaption } from './services/imageDecoderService';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -317,6 +318,35 @@ router.post("/rag/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   try {
     const isExcel = req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls') || req.file.mimetype.includes('excel') || req.file.mimetype.includes('spreadsheet');
+    const isImage = req.file.mimetype.startsWith('image/');
+
+    if (isImage) {
+      // 5MB limit for images
+      if (req.file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "Image file size exceeds the 5MB limit. Please upload a smaller image." });
+      }
+
+      const fileId = "img_" + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+      const ext = req.file.originalname.split('.').pop() || 'png';
+      // We store the image in the public folder so the Chat UI can render it immediately using the URL
+      const publicDir = path.join(process.cwd(), "public", "uploads");
+      if (!fs.existsSync(publicDir)) {
+        fs.mkdirSync(publicDir, { recursive: true });
+      }
+      const imagePath = path.join(publicDir, `${fileId}.${ext}`);
+
+      fs.writeFileSync(imagePath, req.file.buffer);
+      console.log(`[Image Staged] Uploaded: ${imagePath}`);
+
+      return res.json({
+        message: "Image successfully decoded",
+        filename: req.file.originalname,
+        fileType: "image",
+        fileId: `${fileId}.${ext}`,
+        imageCaption: "Analyzing image...", // Temporary caption
+        url: `/uploads/${fileId}.${ext}`
+      });
+    }
 
     if (isExcel) {
       // Stage Excel file for Academic Jarvis Analyzers
@@ -389,15 +419,26 @@ router.post("/conversations/:id/messages", requireAuth, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  const abortController = new AbortController();
+  req.on('close', () => {
+    // Front-end user hit 'Stop Response' or refreshed.
+    abortController.abort();
+  });
+
   try {
     await chatService.processUserMessage(
       conversationId,
       content,
       model,
-      (chunk) => res.write(chunk)
+      (chunk) => res.write(chunk),
+      abortController.signal
     );
     res.end();
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'AbortError' || abortController.signal.aborted) {
+      if (!res.writableEnded) res.end();
+      return;
+    }
     if (!res.writableEnded) {
       res.write("\n[System: Internal Error]");
       res.end();

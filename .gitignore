@@ -6,9 +6,10 @@ build/
 client/node_modules/
 server/node_modules/
 client/dist/
-dist/
 *.log
 server/generated-excel/
+public/generated-files/
+uploads/
 test.xlsx
 *.tmp
 .vscode/
@@ -20,3 +21,4 @@ test_*.xlsx
 *.cjs
 server/test_*.ts
 server/create_test_excels.ts
+test/

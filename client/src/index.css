@@ -165,4 +165,45 @@
   pre::-webkit-scrollbar-thumb {
     @apply bg-white/20 rounded-full;
   }
+
+  /* AI Thinking Indicator */
+  .ai-thinking-indicator {
+    display: flex;
+    gap: 6px;
+    padding: 10px;
+    opacity: 0.7;
+  }
+
+  .ai-thinking-indicator .dot {
+    width: 6px;
+    height: 6px;
+    background: #7c5cff;
+    border-radius: 50%;
+    animation: blink 1.4s infinite;
+  }
+
+  @keyframes blink {
+    0% {
+      opacity: 0.2;
+    }
+
+    50% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0.2;
+    }
+  }
+
+  /* Welcome Notification Custom Overrides */
+  .kalinga-notification {
+    position: fixed !important;
+    bottom: 80px !important;
+    right: 20px !important;
+    max-width: 260px !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+    border-radius: 10px !important;
+  }
 }
